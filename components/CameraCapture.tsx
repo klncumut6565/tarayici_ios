@@ -82,17 +82,23 @@ export default function CameraCapture({ onCapture }: Props) {
       {ready && (
         <div
           aria-hidden
-          style={{
-            position: "absolute",
-            left: "6%",
-            right: "6%",
-            top: "10%",
-            bottom: "22%",
-            border: "1.5px solid var(--scan)",
-            borderRadius: 10,
-            overflow: "hidden",
-            boxShadow: "0 0 0 999px rgba(0,0,0,0.35)",
-          }}
+          style={
+            {
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              // A4 oranı = 1 : 1.4142 (dikey). Önce genişliği viewport'a göre
+              // sınırla, sonra yüksekliği oradan hesapla ki taşma olmasın.
+              "--guide-w": "min(84vw, 63vh)",
+              width: "var(--guide-w)",
+              height: "calc(var(--guide-w) * 1.4142)",
+              transform: "translate(-50%, -50%)",
+              border: "1.5px solid var(--scan)",
+              borderRadius: 10,
+              overflow: "hidden",
+              boxShadow: "0 0 0 999px rgba(0,0,0,0.35)",
+            } as React.CSSProperties
+          }
         >
           <div className="scanline" />
           {[
