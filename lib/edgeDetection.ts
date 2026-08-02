@@ -1,31 +1,34 @@
 import { loadOpenCV } from "./opencvLoader";
 import type { Point } from "./imageProcessing";
 
+export interface DetectionResult {
+  corners: [Point, Point, Point, Point] | null;
+  /** Ne olduğunu (başarı/başarısızlık sebebini) insan tarafından okunabilir açıklar. */
+  debug: string;
+}
+
 /**
  * Bir fotoğraf karesinde belge/kart kenarlarını otomatik olarak bulur.
  *
  * Yöntem: gri tonlama → gauss bulanıklaştırma → Canny kenar algılama →
  * genişletme (dilate) → kontur bulma → her konturu çokgene sadeleştirip
  * (approxPolyDP) dört köşeli, dışbükey ve yeterince büyük olanı seçme.
- * Bu klasik "belge tarayıcı" hattı (jscanify, OpenCV döküman tarayıcı
- * örnekleri) ile aynı yaklaşımdır — rastgele/varsayılan köşeler değil,
- * görüntüdeki gerçek kenarlara dayanır.
  *
- * Uygun bir dörtgen bulunamazsa null döner; çağıran taraf bu durumda
- * varsayılan (kenardan içeri hafif payla) köşelere geri düşer.
+ * Her durumda (başarı ya da başarısızlık) `debug` alanında NEDEN o
+ * sonuca varıldığını açıklayan bir metin döner ve console'a da yazar,
+ * böylece gerçek cihazda "neden algılamıyor" sorusu konsol/ekrandan
+ * doğrudan okunabilir.
  */
-export async function detectDocumentCorners(
-  source: HTMLCanvasElement
-): Promise<[Point, Point, Point, Point] | null> {
+export async function detectDocumentCorners(source: HTMLCanvasElement): Promise<DetectionResult> {
   let cv: any;
   try {
     cv = await loadOpenCV();
-  } catch {
-    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[tarayici:edge] OpenCV yüklenemedi:", msg);
+    return { corners: null, debug: `OpenCV yüklenemedi: ${msg}` };
   }
 
-  // Performans için küçük bir kopya üzerinde çalış, sonucu orijinal
-  // ölçeğe geri çevir.
   const maxDim = 900;
   const scale = Math.min(1, maxDim / Math.max(source.width, source.height));
   const work = document.createElement("canvas");
@@ -55,21 +58,27 @@ export async function detectDocumentCorners(
     hierarchy = new cv.Mat();
     cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
+    const totalContours = contours.size();
     const imgArea = work.width * work.height;
     let bestPoints: Point[] | null = null;
     let bestArea = 0;
+    let quadCount = 0;
+    let bestQuadRatio = 0;
 
-    for (let i = 0; i < contours.size(); i++) {
+    for (let i = 0; i < totalContours; i++) {
       const cnt = contours.get(i);
       const peri = cv.arcLength(cnt, true);
       const approx = new cv.Mat();
       cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
 
       if (approx.rows === 4) {
+        quadCount++;
         const area = Math.abs(cv.contourArea(approx));
+        const ratio = area / imgArea;
+        if (ratio > bestQuadRatio) bestQuadRatio = ratio;
         // Kağıt parçacıkları / gürültü değil, kare gövdesinin makul bir
         // bölümünü kaplayan gerçek belge konturunu istiyoruz.
-        if (area > bestArea && area > imgArea * 0.15 && cv.isContourConvex(approx)) {
+        if (area > bestArea && ratio > 0.15 && cv.isContourConvex(approx)) {
           const pts: Point[] = [];
           for (let j = 0; j < 4; j++) {
             pts.push({ x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1] });
@@ -82,18 +91,33 @@ export async function detectDocumentCorners(
       approx.delete();
     }
 
-    if (!bestPoints) return null;
+    if (!bestPoints) {
+      const debug = `${totalContours} kontur tarandı, ${quadCount} tanesi 4 köşeliydi, en büyük 4 köşeli konturun alan oranı %${(
+        bestQuadRatio * 100
+      ).toFixed(1)} (gereken minimum %15). Uygun/yeterince büyük bir dörtgen bulunamadı — arka plan kontrastı düşük ya da belge çerçeveyi yeterince doldurmuyor olabilir.`;
+      console.warn("[tarayici:edge]", debug);
+      return { corners: null, debug };
+    }
 
     const [tl, tr, br, bl] = orderCorners(bestPoints);
     const inv = 1 / scale;
-    return [
-      { x: tl.x * inv, y: tl.y * inv },
-      { x: tr.x * inv, y: tr.y * inv },
-      { x: br.x * inv, y: br.y * inv },
-      { x: bl.x * inv, y: bl.y * inv },
-    ];
-  } catch {
-    return null;
+    const debug = `Başarılı: ${totalContours} kontur tarandı, seçilen dörtgenin alan oranı %${(
+      (bestArea / imgArea) * 100
+    ).toFixed(1)}.`;
+    console.log("[tarayici:edge]", debug);
+    return {
+      corners: [
+        { x: tl.x * inv, y: tl.y * inv },
+        { x: tr.x * inv, y: tr.y * inv },
+        { x: br.x * inv, y: br.y * inv },
+        { x: bl.x * inv, y: bl.y * inv },
+      ],
+      debug,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[tarayici:edge] işleme sırasında hata:", msg);
+    return { corners: null, debug: `OpenCV işleme hatası: ${msg}` };
   } finally {
     src?.delete();
     gray?.delete();

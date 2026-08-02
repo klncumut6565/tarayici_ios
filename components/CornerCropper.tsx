@@ -17,6 +17,7 @@ export default function CornerCropper({ image, onConfirm }: Props) {
   const [corners, setCorners] = useState<Record<CornerKey, Point> | null>(null);
   const [detecting, setDetecting] = useState(true);
   const [autoDetected, setAutoDetected] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
   const dragging = useRef<CornerKey | null>(null);
   const userAdjusted = useRef(false);
 
@@ -51,8 +52,10 @@ export default function CornerCropper({ image, onConfirm }: Props) {
 
     setDetecting(true);
     setAutoDetected(false);
+    setDebugInfo(null);
     detectDocumentCorners(image)
-      .then((found) => {
+      .then(({ corners: found, debug }) => {
+        setDebugInfo(debug);
         if (cancelled || !found || userAdjusted.current) return;
         const el = containerRef.current;
         if (!el) return;
@@ -65,8 +68,12 @@ export default function CornerCropper({ image, onConfirm }: Props) {
         });
         setAutoDetected(true);
       })
-      .catch(() => {
-        /* algılama başarısız olursa varsayılan köşelerle devam edilir */
+      .catch((err) => {
+        // Beklenmedik (yakalanmamış) bir hata olursa varsayılan köşelerle
+        // devam edilir, ama sebebi ekranda görünür kalsın diye kaydediyoruz.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[tarayici:edge] beklenmeyen hata:", msg);
+        setDebugInfo(`Beklenmeyen hata: ${msg}`);
       })
       .finally(() => {
         if (!cancelled) setDetecting(false);
@@ -178,6 +185,22 @@ export default function CornerCropper({ image, onConfirm }: Props) {
           ? "KENARLAR OTOMATİK ALGILANDI — GEREKİRSE SÜRÜKLE"
           : "KÖŞELERİ BELGENİN KENARLARINA SÜRÜKLE"}
       </div>
+
+      {!detecting && debugInfo && (
+        <div
+          className="mono"
+          style={{
+            textAlign: "center",
+            color: autoDetected ? "var(--ok)" : "var(--scan)",
+            opacity: 0.85,
+            fontSize: 10,
+            lineHeight: 1.4,
+            padding: "6px 20px 0",
+          }}
+        >
+          {debugInfo}
+        </div>
+      )}
 
       <div style={{ padding: "16px 20px calc(20px + var(--safe-bottom))" }}>
         <button
