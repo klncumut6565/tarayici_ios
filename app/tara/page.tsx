@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import CameraCapture from "@/components/CameraCapture";
 import CornerCropper from "@/components/CornerCropper";
 import AdjustPanel from "@/components/AdjustPanel";
-import { warpToRectangle, canvasToBlob, type Point } from "@/lib/imageProcessing";
+import { warpToRectangle, canvasToBlob, blobToImage, type Point } from "@/lib/imageProcessing";
 import { addPage, createDocument } from "@/lib/db";
+import { takePendingImport } from "@/lib/pendingImport";
 import type { FilterType } from "@/lib/types";
 
 type Step = "kamera" | "kirp" | "ayarla";
@@ -23,12 +24,29 @@ function TaraFlow() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const docIdRef = useRef<string | null>(searchParams.get("doc"));
+  const isKimlik = searchParams.get("mode") === "kimlik";
 
   const [step, setStep] = useState<Step>("kamera");
   const [captured, setCaptured] = useState<HTMLCanvasElement | null>(null);
   const [warped, setWarped] = useState<HTMLCanvasElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [pageCount, setPageCount] = useState(0);
+
+  // Ana sayfadan "Galeri" veya "Dosyalardan Yükle" ile gelindiyse, bekleyen
+  // görüntüyü doğrudan kırpma adımına aktar; kamera adımını atla.
+  useEffect(() => {
+    const pending = takePendingImport();
+    if (!pending) return;
+    blobToImage(pending.file).then((img) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d")!.drawImage(img, 0, 0);
+      setCaptured(canvas);
+      setStep("kirp");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCapture = useCallback((canvas: HTMLCanvasElement) => {
     setCaptured(canvas);
@@ -52,7 +70,10 @@ function TaraFlow() {
     setSaving(true);
     try {
       if (!docIdRef.current) {
-        const doc = await createDocument(`Belge ${new Date().toLocaleDateString("tr-TR")}`);
+        const title = isKimlik
+          ? `Kimlik ${new Date().toLocaleDateString("tr-TR")}`
+          : `Belge ${new Date().toLocaleDateString("tr-TR")}`;
+        const doc = await createDocument(title);
         docIdRef.current = doc.id;
       }
       const blob = await canvasToBlob(canvas);
@@ -75,7 +96,11 @@ function TaraFlow() {
     <>
       {step === "kamera" && (
         <>
-          <CameraCapture onCapture={handleCapture} />
+          <CameraCapture
+            onCapture={handleCapture}
+            guideAspect={isKimlik ? 1.586 : 1 / 1.4142}
+            guideLabel={isKimlik ? "KİMLİĞİ ÇERÇEVEYE YERLEŞTİR (ÖN/ARKA AYRI ÇEK)" : "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR"}
+          />
           {pageCount > 0 && (
             <button
               onClick={finish}

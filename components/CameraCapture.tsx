@@ -4,9 +4,17 @@ import { useEffect, useRef, useState } from "react";
 
 interface Props {
   onCapture: (canvas: HTMLCanvasElement) => void;
+  /** Kılavuz çerçevenin en/boy oranı (genişlik/yükseklik). Varsayılan A4. */
+  guideAspect?: number;
+  /** Kılavuz çerçevenin altındaki açıklama metni. */
+  guideLabel?: string;
 }
 
-export default function CameraCapture({ onCapture }: Props) {
+export default function CameraCapture({
+  onCapture,
+  guideAspect = 1 / 1.4142,
+  guideLabel = "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR",
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -87,11 +95,11 @@ export default function CameraCapture({ onCapture }: Props) {
               position: "absolute",
               left: "50%",
               top: "50%",
-              // A4 oranı = 1 : 1.4142 (dikey). Önce genişliği viewport'a göre
-              // sınırla, sonra yüksekliği oradan hesapla ki taşma olmasın.
-              "--guide-w": "min(84vw, 63vh)",
+              // guideAspect = genişlik / yükseklik. Önce genişliği viewport'a
+              // göre sınırla, sonra yüksekliği oradan hesapla ki taşma olmasın.
+              "--guide-w": guideAspect >= 1 ? "min(88vw, 88vh)" : "min(84vw, 63vh)",
               width: "var(--guide-w)",
-              height: "calc(var(--guide-w) * 1.4142)",
+              height: `calc(var(--guide-w) / ${guideAspect})`,
               transform: "translate(-50%, -50%)",
               border: "1.5px solid var(--scan)",
               borderRadius: 10,
@@ -136,7 +144,7 @@ export default function CameraCapture({ onCapture }: Props) {
           opacity: 0.75,
         }}
       >
-        BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR
+        {guideLabel}
       </div>
 
       <div

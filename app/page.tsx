@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { listDocuments, deleteDocument } from "@/lib/db";
+import { setPendingImport } from "@/lib/pendingImport";
+import AddMenu from "@/components/AddMenu";
 import type { ScanDocument } from "@/lib/types";
 
 export default function HomePage() {
   const [docs, setDocs] = useState<ScanDocument[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const filesInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listDocuments().then((d) => {
@@ -29,11 +34,64 @@ export default function HomePage() {
     setDocs((prev) => prev?.filter((d) => d.id !== id) ?? null);
   }
 
+  function openCamera() {
+    setMenuOpen(false);
+    router.push("/tara");
+  }
+
+  function openGallery() {
+    setMenuOpen(false);
+    galleryInputRef.current?.click();
+  }
+
+  function openFiles() {
+    setMenuOpen(false);
+    filesInputRef.current?.click();
+  }
+
+  function openKimlik() {
+    setMenuOpen(false);
+    router.push("/tara?mode=kimlik");
+  }
+
+  function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.type === "application/pdf") {
+      alert("PDF dosyaları şu an desteklenmiyor. Lütfen bir görüntü (JPEG/PNG) seç.");
+      return;
+    }
+    setPendingImport(file, "standart");
+    router.push("/tara");
+  }
+
   return (
     <main style={{ padding: "calc(20px + var(--safe-top)) 20px 24px" }}>
-      <header style={{ marginBottom: 24 }}>
-        <div className="eyebrow">Cihaz No. 001 — Yerel Depo</div>
-        <h1 style={{ fontSize: 28, margin: "4px 0 0", fontWeight: 700 }}>Belgelerim</h1>
+      <header style={{ marginBottom: 24, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <div>
+          <div className="eyebrow">Cihaz No. 001 — Yerel Depo</div>
+          <h1 style={{ fontSize: 28, margin: "4px 0 0", fontWeight: 700 }}>Belgelerim</h1>
+        </div>
+        <button
+          onClick={() => setMenuOpen(true)}
+          aria-label="Yeni belge ekle"
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            background: "var(--scan)",
+            color: "#1a0a05",
+            fontSize: 22,
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          +
+        </button>
       </header>
 
       {docs === null && <p style={{ color: "var(--ink-dim)" }}>Yükleniyor…</p>}
@@ -50,7 +108,7 @@ export default function HomePage() {
         >
           <p style={{ margin: "0 0 16px" }}>Henüz taranmış belge yok.</p>
           <button
-            onClick={() => router.push("/tara")}
+            onClick={openCamera}
             className="mono"
             style={{
               background: "var(--scan)",
@@ -61,8 +119,28 @@ export default function HomePage() {
               fontWeight: 700,
             }}
           >
-            İLK BELGEYİ TARA
+            ŞİMDİ TARA
           </button>
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={() => setMenuOpen(true)}
+              aria-label="Galeri, dosya veya kimlik seçenekleriyle ekle"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                border: "1px solid var(--line)",
+                color: "var(--ink)",
+                fontSize: 18,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              +
+            </button>
+          </div>
         </div>
       )}
 
@@ -149,6 +227,30 @@ export default function HomePage() {
           </a>
         ))}
       </div>
+
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChosen}
+        style={{ display: "none" }}
+      />
+      <input
+        ref={filesInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={handleFileChosen}
+        style={{ display: "none" }}
+      />
+
+      <AddMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onCamera={openCamera}
+        onGallery={openGallery}
+        onFiles={openFiles}
+        onKimlik={openKimlik}
+      />
     </main>
   );
 }

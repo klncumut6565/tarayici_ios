@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Point } from "@/lib/imageProcessing";
+import { detectDocumentCorners } from "@/lib/edgeDetection";
 
 interface Props {
   image: HTMLCanvasElement;
@@ -14,31 +15,72 @@ export default function CornerCropper({ image, onConfirm }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
   const [corners, setCorners] = useState<Record<CornerKey, Point> | null>(null);
+  const [detecting, setDetecting] = useState(true);
+  const [autoDetected, setAutoDetected] = useState(false);
   const dragging = useRef<CornerKey | null>(null);
+  const userAdjusted = useRef(false);
+
+  function fallbackCorners(w: number, h: number): Record<CornerKey, Point> {
+    const margin = 0.08;
+    return {
+      tl: { x: w * margin, y: h * margin },
+      tr: { x: w * (1 - margin), y: h * margin },
+      br: { x: w * (1 - margin), y: h * (1 - margin) },
+      bl: { x: w * margin, y: h * (1 - margin) },
+    };
+  }
 
   useEffect(() => {
+    let cancelled = false;
+
     function measure() {
       const el = containerRef.current;
       if (!el) return;
-      const scale = Math.min(el.clientWidth / image.width, el.clientHeight / image.height);
-      const w = image.width * scale;
-      const h = image.height * scale;
+      const s = Math.min(el.clientWidth / image.width, el.clientHeight / image.height);
+      const w = image.width * s;
+      const h = image.height * s;
       setDisplaySize({ width: w, height: h });
-      const margin = 0.08;
-      setCorners({
-        tl: { x: w * margin, y: h * margin },
-        tr: { x: w * (1 - margin), y: h * margin },
-        br: { x: w * (1 - margin), y: h * (1 - margin) },
-        bl: { x: w * margin, y: h * (1 - margin) },
-      });
+      // Otomatik algılama henüz sonuçlanmadıysa veya kullanıcı köşeleri
+      // kendi eliyle değiştirmemişse varsayılan köşeleri göster; algılama
+      // biterse aşağıdaki blok gerçek köşelerle güncelleyecek.
+      if (!userAdjusted.current) setCorners(fallbackCorners(w, h));
     }
+
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+
+    setDetecting(true);
+    setAutoDetected(false);
+    detectDocumentCorners(image)
+      .then((found) => {
+        if (cancelled || !found || userAdjusted.current) return;
+        const el = containerRef.current;
+        if (!el) return;
+        const s = Math.min(el.clientWidth / image.width, el.clientHeight / image.height);
+        setCorners({
+          tl: { x: found[0].x * s, y: found[0].y * s },
+          tr: { x: found[1].x * s, y: found[1].y * s },
+          br: { x: found[2].x * s, y: found[2].y * s },
+          bl: { x: found[3].x * s, y: found[3].y * s },
+        });
+        setAutoDetected(true);
+      })
+      .catch(() => {
+        /* algılama başarısız olursa varsayılan köşelerle devam edilir */
+      })
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("resize", measure);
+    };
   }, [image]);
 
   function handlePointerDown(key: CornerKey) {
     dragging.current = key;
+    userAdjusted.current = true;
   }
 
   function handlePointerMove(e: React.PointerEvent) {
@@ -130,7 +172,11 @@ export default function CornerCropper({ image, onConfirm }: Props) {
         className="eyebrow"
         style={{ textAlign: "center", color: "#fff", opacity: 0.7, padding: "10px 20px 0" }}
       >
-        KÖŞELERİ BELGENİN KENARLARINA SÜRÜKLE
+        {detecting
+          ? "KENARLAR ALGILANIYOR…"
+          : autoDetected
+          ? "KENARLAR OTOMATİK ALGILANDI — GEREKİRSE SÜRÜKLE"
+          : "KÖŞELERİ BELGENİN KENARLARINA SÜRÜKLE"}
       </div>
 
       <div style={{ padding: "16px 20px calc(20px + var(--safe-bottom))" }}>
