@@ -1,146 +1,66 @@
-# iOS Belge Tarası + OCR + PDF
+# Tarayıcı — Mobil PWA Belge Tarayıcı
 
-**On-device, internet-free belge taraması ve PDF dönüştürme.**
+Telefon kamerasıyla fotoğraf çek, köşeleri düzelt, filtre uygula, çoklu sayfalı PDF olarak paylaş/indir. Tamamen tarayıcıda çalışır — sunucuya hiçbir veri gitmez, tüm belgeler cihazda IndexedDB'de tutulur.
 
-## 📱 Özellikler
+## Neden native yerine PWA?
 
-- **VNDocumentCameraViewController**: Apple'ın native belge tarası (otomatik perspektif düzeltme, edge detection)
-- **Vision OCR**: On-device Türkçe yazı tanıması (no API calls)
-- **PDF Generation**: Resim + OCR metni birlikte PDF'e yazma
-- **Multi-page**: Sıradaki sayfa ekle, tekil silme
-- **Share**: PDF Share Sheet'e gider
+- Xcode / Mac / Apple Developer hesabı gerekmez
+- App Store review süreci yok
+- Vercel'e deploy → link paylaş → Safari'de "Ana Ekrana Ekle" → telefonda native app gibi ikon + tam ekran
+- Kamera, IndexedDB ve Service Worker sayesinde offline çalışır
 
-## 🏗️ Mimari
+## Yerel geliştirme
 
-```
-DocumentScannerApp.swift
-├── ContentView (UI, state binding)
-│   ├── DocumentScannerViewController (kamera, VisionKit)
-│   └── ScannerViewModel (logic)
-│       ├── extractText() [VNRecognizeTextRequest]
-│       ├── generatePDF() [PDFKit]
-│       └── createTextPage() [UIGraphicsPDFRenderer]
-```
-
-## 🚀 Başlangıç
-
-### 1. Xcode'da yeni project
 ```bash
-File > New > Project > iOS App
-Product Name: DocumentScanner
-Interface: SwiftUI
+npm install
+npm run dev
 ```
 
-### 2. Dosyaları ekle
-- `DocumentScannerApp.swift`
-- `ScannerViewModel.swift`
-- `DocumentScannerViewController.swift`
+`http://localhost:3000` — kamera testi için gerçek cihazdan HTTPS üzerinden erişmek gerekir (localhost istisnadır, `getUserMedia` için).
 
-### 3. Info.plist
-Şu kez ekle:
-```xml
-<key>NSCameraUsageDescription</key>
-<string>Belgeleri taramak için kamera erişimi gereklidir</string>
+## Vercel'e deploy
+
+```bash
+npm i -g vercel
+vercel
 ```
 
-### 4. Build
-```
-Cmd + R (iPhone 17 simulator)
-```
+veya GitHub reposunu Vercel'e bağla (Import Project) — her push'ta otomatik deploy olur.
 
-## 🎯 Kullanım
+## Telefonda kurulum (PWA)
 
-1. **Belge Tara** → VNDocumentCameraViewController açılır
-2. **Sayfalar ekle** → Birden fazla sayfa tarayabilirsin
-3. **PDF Yap** → OCR + PDF generation başlar (~1-2 saniye)
-4. **Share** → AirDrop, Mail, Files vb.
+1. Deploy edilen linki Safari'de aç (iOS) veya Chrome'da aç (Android)
+2. iOS: Paylaş → **Ana Ekrana Ekle**
+3. Android: Chrome menüsü → **Ana ekrana ekle / Uygulama yükle**
+4. Artık ikon ana ekranda, tam ekran açılıyor, offline çalışıyor
 
-## 🔧 Özelleştirme
-
-### OCR dili değiştir (ek diller)
-`ScannerViewModel.swift`, `extractText()` içinde:
-```swift
-request.recognitionLanguages = ["tr", "en"] // Türkçe + İngilizce
-```
-
-### PDF'e OCR metni eklememe (sadece resim)
-`createPDF()` içinde şu satırı sil:
-```swift
-// if index < texts.count ... { }  // Bunu kapat
-```
-
-### PDF sayfa boyutu (A4 vs Letter)
-`createTextPage()`'de:
-```swift
-let pageSize = CGSize(width: 595, height: 842) // A4: 595×842 pt
-// Letter: 612×792 pt (default)
-```
-
-### OCR accuracy seviyesi
-`extractText()`'de:
-```swift
-request.recognitionLevel = .accurate  // .fast veya .accurate
-```
-
-## 📊 Performance
-
-| İşlem | iPhone 17 | Notlar |
-|-------|-----------|--------|
-| Belge Taraması | <1s | Hardware optimized |
-| OCR (sayfa) | 1-2s | Vision framework |
-| PDF Generation | <500ms | PDFKit + renderer |
-| Total | 2-4s | 3 sayfalık belge |
-
-## 🐛 Sık Sorunlar
-
-### Kamera kullanılamıyor
-- Info.plist'e `NSCameraUsageDescription` ekledin mi?
-- Simulator Settings → Privacy → Camera → Allow
-
-### OCR boş geliyor
-- Belge kalitesi düşük → brightness kontrol et
-- OCR language support: iOS 15+
-
-### PDF kaydedilmedi
-- Documents klasörü yazılabilir mi? (Debugger'da kontrol)
-- Disk space yeterli mi?
-
-## 📝 Dosya Yapısı
+## Mimari
 
 ```
-DocumentScanner/
-├── DocumentScannerApp.swift          # @main app
-├── ScannerViewModel.swift            # @MainActor, Observable
-├── DocumentScannerViewController.swift # UIViewControllerRepresentable
-├── Info.plist                        # Permissions
-└── README.md
+app/
+  page.tsx            → Belge galerisi (ana sayfa)
+  tara/page.tsx        → Kamera → köşe düzeltme → filtre/ayar akışı
+  belge/[id]/page.tsx  → Sayfa yönetimi, sıralama, PDF dışa aktarma
+components/
+  CameraCapture.tsx    → getUserMedia canlı kamera + tarama çizgisi animasyonu
+  CornerCropper.tsx    → 4 köşeli sürüklenebilir perspektif düzeltme
+  AdjustPanel.tsx       → Filtre (Orijinal/Gri/S-B/Canlı) + parlaklık/kontrast
+  BottomNav.tsx         → Alt navigasyon (Belgeler / Tara)
+lib/
+  db.ts                → IndexedDB (idb) — belge ve sayfa deposu
+  imageProcessing.ts    → Canvas tabanlı perspektif warp + filtreler
+  pdf.ts                → jsPDF ile çoklu sayfa PDF üretimi + paylaşım
+public/
+  manifest.json, sw.js  → PWA manifest ve offline shell cache
 ```
 
-## 🔐 Privacy
+## Veri & Gizlilik
 
-- ✅ Tüm işlemler cihazda (no cloud)
-- ✅ Kamera sadece tarama sırasında
-- ✅ PDF sadece Documents klasöründe tutulur
-- ✅ Backuo'da dahil (iCloud sync için settings'te aç)
+- Hiçbir görüntü sunucuya yüklenmez; tüm işleme cihazda (canvas) yapılır
+- Belgeler IndexedDB'de saklanır — uygulama silinirse veriler de silinir
+- PDF paylaşımı Web Share API (`navigator.share`) ile yapılır; desteklenmiyorsa indirilir
 
-## 📦 Dependencies
+## Bilinen sınırlamalar
 
-- **Built-in**: SwiftUI, Vision, VisionKit, PDFKit, FileManager
-- **External**: None (zero dependencies)
-
-## 🎨 UI Customization
-
-`ContentView.swift`'te Figma-style renkler:
-```swift
-.background(Color.blue)        // Primary
-.foregroundColor(.white)       // Foreground
-.cornerRadius(10)              // Border radius
-```
-
-Butonları değiştir:
-- "Belge Tara" → Custom text
-- Emoji'ler → SF Symbols (bkz. [SF Symbols](https://developer.apple.com/sf-symbols/))
-
-## 📞 İletişim & Destek
-
-Sorular: kodu fork'la ve test et, burada sor.
+- Kenar algılama otomatik değil — köşeler elle sürüklenir (kalite/karmaşıklık dengesi için tercih edildi)
+- iOS Safari'de kamera arka plana alındığında stream tekrar başlatılır
