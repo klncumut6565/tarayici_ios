@@ -19,13 +19,15 @@ function getWorker(): Worker {
   return worker;
 }
 
-const DETECTION_TIMEOUT_MS = 12000;
+const DETECTION_TIMEOUT_MS = 4000;
 
 /**
  * Bir fotoğraf karesinde belge/kart kenarlarını otomatik olarak bulur.
  * İndirgeme (downscale) ve piksel okuma ana thread'de yapılır (ucuz,
- * yerel canvas işlemleri); asıl Canny + kontur analizi worker'a
- * devredilir, ana thread boşta kalır.
+ * yerel canvas işlemleri); asıl Sobel/kenar taraması worker'a
+ * devredilir, ana thread boşta kalır. Worker artık OpenCV/WASM
+ * kullanmıyor (bkz. edgeDetection.worker.ts) — saf JS olduğu için
+ * genelde birkaç yüz milisaniyede tamamlanır.
  */
 export async function detectDocumentCorners(source: HTMLCanvasElement): Promise<DetectionResult> {
   if (typeof window === "undefined") {
