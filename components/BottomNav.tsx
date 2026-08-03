@@ -11,6 +11,12 @@ const items = [
 export default function BottomNav() {
   const pathname = usePathname();
 
+  // Kamera / köşe düzenleme / filtre ayarı tam ekran akışı (/tara) kendi
+  // "×" çıkış tuşunu ve onay butonlarını içeriyor; alt navigasyon (z-index
+  // olarak üstte kaldığı için) bu butonların önüne geçip tıklanamaz hale
+  // getiriyordu. Bu akışta navigasyonu tamamen gizliyoruz.
+  if (pathname.startsWith("/tara")) return null;
+
   return (
     <nav
       style={{
