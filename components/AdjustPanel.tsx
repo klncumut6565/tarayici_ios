@@ -98,7 +98,9 @@ export default function AdjustPanel({ source, onSave, onRetake, saving }: Props)
 
       <div style={{ display: "flex", gap: 10, padding: "0 20px calc(20px + var(--safe-bottom))" }}>
         <button
-          onClick={onRetake}
+          onClick={() => {
+            if (confirm("Bu fotoğrafı silip yeniden mi çekmek istiyorsun? Bu sayfa kaydedilmeyecek.")) onRetake();
+          }}
           className="mono"
           style={{
             flex: 1,

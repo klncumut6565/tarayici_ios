@@ -111,7 +111,7 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
     setDraggingKey(null);
   }
 
-  function confirm() {
+  function confirmCrop() {
     if (!corners) return;
     const scale = image.width / displaySize.width;
     const toImg = (p: Point): Point => ({ x: p.x * scale, y: p.y * scale });
@@ -124,7 +124,9 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
     <div style={{ position: "fixed", inset: 0, background: "#000", display: "flex", flexDirection: "column" }}>
       {onCancel && (
         <button
-          onClick={onCancel}
+          onClick={() => {
+            if (confirm("Bu fotoğrafı silmek istediğine emin misin? Kaydedilmeyecek.")) onCancel();
+          }}
           aria-label="İptal / geri"
           style={{
             position: "absolute",
@@ -149,7 +151,7 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
         ref={containerRef}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        style={{ flex: 1, position: "relative", touchAction: "none" }}
+        style={{ flex: 1, minHeight: 0, position: "relative", touchAction: "none" }}
       >
         {displaySize.width > 0 && (
           <div
@@ -234,21 +236,29 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
         </div>
       )}
 
-      <div style={{ padding: "16px 20px calc(20px + var(--safe-bottom))" }}>
+      <div
+        style={{
+          padding: "16px 20px calc(20px + var(--safe-bottom))",
+          flexShrink: 0,
+          background: "#000",
+        }}
+      >
         <button
-          onClick={confirm}
+          onClick={confirmCrop}
+          disabled={!corners}
           className="mono"
           style={{
             width: "100%",
             background: "var(--scan)",
             color: "#1a0a05",
-            padding: "14px",
+            padding: "16px",
             borderRadius: "var(--radius-sm)",
-            fontSize: 14,
+            fontSize: 15,
             fontWeight: 700,
+            opacity: corners ? 1 : 0.5,
           }}
         >
-          DÜZELT VE DEVAM ET
+          KIRP VE SAYFA OLARAK EKLE →
         </button>
       </div>
     </div>
