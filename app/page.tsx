@@ -186,6 +186,22 @@ export default function HomePage() {
                   boş
                 </div>
               )}
+              <div
+                className="mono"
+                style={{
+                  position: "absolute",
+                  top: 6,
+                  left: 6,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  background: doc.uploadStatus === "uploaded" ? "rgba(60,200,120,0.85)" : "rgba(255,143,0,0.85)",
+                  color: "#0a0c0e",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                {doc.uploadStatus === "uploaded" ? "✓ YÜKLENDİ" : "YÜKLENMEDİ"}
+              </div>
               <button
                 onClick={(e) => handleDelete(doc.id, e)}
                 aria-label="Belgeyi sil"

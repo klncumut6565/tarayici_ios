@@ -1,25 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   getDocument,
   getPagesForDoc,
   deletePage,
   reorderPages,
   updatePage,
+  markDocumentUploaded,
+  markDocumentPending,
 } from "@/lib/db";
 import type { ScanDocument, ScanPage } from "@/lib/types";
 import { pagesToPDF, downloadBlob, sharePDF } from "@/lib/pdf";
 import { blobToImage, canvasToBlob, rotateCanvas90 } from "@/lib/imageProcessing";
+import {
+  readIntegrationOptions,
+  hasActiveIntegration,
+  isEmbedded,
+  deliverDocument,
+} from "@/lib/scannerModule";
+import PdfPreview from "@/components/PdfPreview";
 
 export default function DocumentPage() {
+  return (
+    <Suspense fallback={null}>
+      <DocumentView />
+    </Suspense>
+  );
+}
+
+function DocumentView() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const integration = readIntegrationOptions(searchParams);
+  const integrationActive = hasActiveIntegration(integration);
+
   const [doc, setDoc] = useState<ScanDocument | null>(null);
   const [pages, setPages] = useState<ScanPage[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const [exporting, setExporting] = useState(false);
+  const [preparingPreview, setPreparingPreview] = useState(false);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [sendingIntegration, setSendingIntegration] = useState(false);
+  const [integrationError, setIntegrationError] = useState<string | null>(null);
 
   async function reload() {
     const [d, p] = await Promise.all([getDocument(id), getPagesForDoc(id)]);
@@ -62,17 +86,54 @@ export default function DocumentPage() {
     reload();
   }
 
-  async function exportPDF() {
-    if (pages.length === 0) return;
-    setExporting(true);
+  async function openPreview() {
+    if (pages.length === 0 || !doc) return;
+    setPreparingPreview(true);
+    setIntegrationError(null);
     try {
-      const blob = await pagesToPDF(pages, doc?.title ?? "belge");
-      const filename = `${(doc?.title ?? "belge").replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || "belge"}.pdf`;
-      const shared = await sharePDF(blob, filename);
-      if (!shared) downloadBlob(blob, filename);
+      const blob = await pagesToPDF(pages, doc.title);
+      setPreviewBlob(blob);
     } finally {
-      setExporting(false);
+      setPreparingPreview(false);
     }
+  }
+
+  function filenameFor(d: ScanDocument) {
+    return `${d.title.replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || "belge"}.pdf`;
+  }
+
+  async function handleShareOrDownload() {
+    if (!previewBlob || !doc) return;
+    const filename = filenameFor(doc);
+    const shared = await sharePDF(previewBlob, filename);
+    if (!shared) downloadBlob(previewBlob, filename);
+  }
+
+  async function handleIntegrationSend() {
+    if (!doc) return;
+    setSendingIntegration(true);
+    setIntegrationError(null);
+    try {
+      const result = await deliverDocument(doc, integration);
+      if (result.delivered) {
+        setPreviewBlob(null);
+        await reload();
+        if (integration.returnTo) {
+          window.location.href = integration.returnTo;
+        }
+      } else {
+        setIntegrationError(result.error ?? "Bilinmeyen hata");
+      }
+    } finally {
+      setSendingIntegration(false);
+    }
+  }
+
+  async function toggleUploadStatus() {
+    if (!doc) return;
+    if (doc.uploadStatus === "uploaded") await markDocumentPending(doc.id);
+    else await markDocumentUploaded(doc.id, "manual");
+    reload();
   }
 
   if (!doc) {
@@ -83,16 +144,39 @@ export default function DocumentPage() {
     );
   }
 
+  const uploaded = doc.uploadStatus === "uploaded";
+
   return (
     <main style={{ padding: "calc(20px + var(--safe-top)) 20px 24px" }}>
       <button onClick={() => router.push("/")} className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginBottom: 14 }}>
         ← BELGELER
       </button>
 
-      <h1 style={{ fontSize: 22, margin: "0 0 4px", fontWeight: 700 }}>{doc.title}</h1>
-      <div className="eyebrow" style={{ marginBottom: 20 }}>{pages.length} SAYFA</div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, margin: "0 0 4px", fontWeight: 700 }}>{doc.title}</h1>
+          <div className="eyebrow">{pages.length} SAYFA</div>
+        </div>
+        <button
+          onClick={toggleUploadStatus}
+          className="mono"
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "6px 10px",
+            borderRadius: 999,
+            background: uploaded ? "var(--ok-dim, rgba(60,200,120,0.15))" : "rgba(255,143,0,0.15)",
+            color: uploaded ? "var(--ok)" : "var(--scan)",
+            border: `1px solid ${uploaded ? "var(--ok)" : "var(--scan)"}`,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {uploaded ? "✓ YÜKLENDİ" : "YÜKLENMEDİ"}
+        </button>
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, margin: "20px 0 24px" }}>
         {pages.map((page, i) => (
           <div key={page.id} style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", overflow: "hidden", border: "1px solid var(--line)" }}>
             <div style={{ aspectRatio: "3/4", background: "#000" }}>
@@ -127,9 +211,25 @@ export default function DocumentPage() {
         </button>
       </div>
 
+      {integrationActive && (
+        <div
+          className="mono"
+          style={{
+            fontSize: 10,
+            color: "var(--ink-dim)",
+            border: "1px dashed var(--line)",
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 10px",
+            marginBottom: 12,
+          }}
+        >
+          {isEmbedded() ? "Bu ekran bir üst sistem içine gömülü — PDF hazır olunca otomatik iletilecek." : "Dış sistem bağlantısı algılandı — PDF, önizleme ekranından gönderilebilir."}
+        </div>
+      )}
+
       <button
-        onClick={exportPDF}
-        disabled={exporting || pages.length === 0}
+        onClick={openPreview}
+        disabled={preparingPreview || pages.length === 0}
         className="mono"
         style={{
           width: "100%",
@@ -139,11 +239,27 @@ export default function DocumentPage() {
           color: "#1a0a05",
           fontWeight: 700,
           fontSize: 14,
-          opacity: exporting || pages.length === 0 ? 0.5 : 1,
+          opacity: preparingPreview || pages.length === 0 ? 0.5 : 1,
         }}
       >
-        {exporting ? "PDF OLUŞTURULUYOR…" : "PDF OLARAK PAYLAŞ / İNDİR"}
+        {preparingPreview ? "PDF HAZIRLANIYOR…" : "PDF ÖNİZLE"}
       </button>
+
+      {previewBlob && doc && (
+        <PdfPreview
+          blob={previewBlob}
+          filename={filenameFor(doc)}
+          onClose={() => {
+            setPreviewBlob(null);
+            setIntegrationError(null);
+          }}
+          onShareOrDownload={handleShareOrDownload}
+          integrationLabel={integrationActive ? (isEmbedded() ? "OTOMATİK GÖNDER" : "TMGD'YE GÖNDER") : undefined}
+          onIntegrationSend={integrationActive ? handleIntegrationSend : undefined}
+          sendingIntegration={sendingIntegration}
+          integrationError={integrationError}
+        />
+      )}
     </main>
   );
 }

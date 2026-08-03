@@ -18,4 +18,9 @@ export interface ScanDocument {
   updatedAt: number;
   pageCount: number;
   coverThumb?: Blob;
+  /** Bu belge dış sisteme (ör. TMGD) gönderildi mi? Yoksa hâlâ cihazda mı bekliyor. */
+  uploadStatus: "pending" | "uploaded";
+  /** uploadStatus "uploaded" olduğunda ne zaman/nereye gönderildiği. */
+  uploadedAt?: number;
+  uploadedVia?: "postMessage" | "callback" | "manual";
 }

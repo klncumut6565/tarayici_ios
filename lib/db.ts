@@ -40,9 +40,43 @@ function newId() {
 export async function createDocument(title = "Yeni Belge"): Promise<ScanDocument> {
   const db = await getDB();
   const now = Date.now();
-  const doc: ScanDocument = { id: newId(), title, createdAt: now, updatedAt: now, pageCount: 0 };
+  const doc: ScanDocument = {
+    id: newId(),
+    title,
+    createdAt: now,
+    updatedAt: now,
+    pageCount: 0,
+    uploadStatus: "pending",
+  };
   await db.put("documents", doc);
   return doc;
+}
+
+/** Belgeyi "dış sisteme gönderildi" olarak işaretler (ScannerModule teslimatı sonrası çağrılır). */
+export async function markDocumentUploaded(
+  id: string,
+  via: NonNullable<ScanDocument["uploadedVia"]> = "manual"
+): Promise<void> {
+  const db = await getDB();
+  const doc = await db.get("documents", id);
+  if (!doc) return;
+  doc.uploadStatus = "uploaded";
+  doc.uploadedAt = Date.now();
+  doc.uploadedVia = via;
+  doc.updatedAt = Date.now();
+  await db.put("documents", doc);
+}
+
+/** Belgeyi tekrar "bekliyor" durumuna alır (kullanıcı yanlışlıkla işaretlediyse geri alabilsin diye). */
+export async function markDocumentPending(id: string): Promise<void> {
+  const db = await getDB();
+  const doc = await db.get("documents", id);
+  if (!doc) return;
+  doc.uploadStatus = "pending";
+  doc.uploadedAt = undefined;
+  doc.uploadedVia = undefined;
+  doc.updatedAt = Date.now();
+  await db.put("documents", doc);
 }
 
 export async function listDocuments(): Promise<ScanDocument[]> {

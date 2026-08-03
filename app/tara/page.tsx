@@ -8,6 +8,7 @@ import AdjustPanel from "@/components/AdjustPanel";
 import { warpToRectangle, canvasToBlob, blobToImage, type Point } from "@/lib/imageProcessing";
 import { addPage, createDocument } from "@/lib/db";
 import { takePendingImport } from "@/lib/pendingImport";
+import { readIntegrationOptions, appendIntegrationParams } from "@/lib/scannerModule";
 import type { FilterType } from "@/lib/types";
 
 type Step = "kamera" | "kirp" | "ayarla";
@@ -88,8 +89,9 @@ function TaraFlow() {
   }
 
   function finish() {
-    if (docIdRef.current) router.push(`/belge/${docIdRef.current}`);
-    else router.push("/");
+    const integration = readIntegrationOptions(searchParams);
+    const path = docIdRef.current ? `/belge/${docIdRef.current}` : "/";
+    router.push(appendIntegrationParams(path, integration));
   }
 
   return (
