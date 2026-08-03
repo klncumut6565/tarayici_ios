@@ -136,9 +136,15 @@ function DocumentView() {
 
   async function toggleUploadStatus() {
     if (!doc) return;
-    if (doc.uploadStatus === "uploaded") await markDocumentPending(doc.id);
-    else await markDocumentUploaded(doc.id, "manual");
-    reload();
+    if (doc.uploadStatus === "uploaded") {
+      await markDocumentPending(doc.id);
+      reload();
+    } else {
+      // Son onay: yüklendi olarak işaretle ve tüm belgelerin
+      // listelendiği kütüphaneye yönlendir.
+      await markDocumentUploaded(doc.id, "manual");
+      router.push("/");
+    }
   }
 
   async function chooseDocType(type: string) {
@@ -232,7 +238,7 @@ function DocumentView() {
             flexShrink: 0,
           }}
         >
-          {uploaded ? "✓ YÜKLENDİ" : "YÜKLENMEDİ"}
+          {uploaded ? "✓ YÜKLENDİ" : "YÜKLE"}
         </button>
       </div>
 

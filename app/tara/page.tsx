@@ -119,7 +119,7 @@ function TaraFlow() {
               className="mono"
               style={{
                 position: "fixed",
-                top: "calc(16px + var(--safe-top))",
+                bottom: "calc(40px + var(--safe-bottom))",
                 right: 20,
                 background: "rgba(19,22,25,0.85)",
                 color: "var(--ok)",

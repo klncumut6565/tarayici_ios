@@ -21,27 +21,43 @@ function getImageSize(dataUrl: string): Promise<{ width: number; height: number 
 }
 
 export async function pagesToPDF(pages: ScanPage[], title = "belge"): Promise<Blob> {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  if (pages.length === 0) {
+    return new jsPDF({ unit: "mm", format: "a4" }).output("blob");
+  }
+
+  let doc: jsPDF | null = null;
 
   for (let i = 0; i < pages.length; i++) {
     const dataUrl = await blobToDataURL(pages[i].imageData);
     const { width, height } = await getImageSize(dataUrl);
 
+    // Fotoğraf yatay çekilmişse (genişlik > yükseklik), o sayfayı PDF'te
+    // de yatay A4 olarak oluştur — dikey A4'e küçültüp ortalamak yerine.
+    // Böylece yatay belgeler PDF'te büyük ve doğru oranda görünür.
+    const isLandscape = width > height;
+    const pageW = isLandscape ? A4_HEIGHT_MM : A4_WIDTH_MM;
+    const pageH = isLandscape ? A4_WIDTH_MM : A4_HEIGHT_MM;
+
+    if (!doc) {
+      doc = new jsPDF({ unit: "mm", format: "a4", orientation: isLandscape ? "landscape" : "portrait" });
+    } else {
+      doc.addPage("a4", isLandscape ? "landscape" : "portrait");
+    }
+
     const ratio = width / height;
-    let renderW = A4_WIDTH_MM;
+    let renderW = pageW;
     let renderH = renderW / ratio;
-    if (renderH > A4_HEIGHT_MM) {
-      renderH = A4_HEIGHT_MM;
+    if (renderH > pageH) {
+      renderH = pageH;
       renderW = renderH * ratio;
     }
-    const x = (A4_WIDTH_MM - renderW) / 2;
-    const y = (A4_HEIGHT_MM - renderH) / 2;
+    const x = (pageW - renderW) / 2;
+    const y = (pageH - renderH) / 2;
 
-    if (i > 0) doc.addPage();
     doc.addImage(dataUrl, "JPEG", x, y, renderW, renderH, undefined, "FAST");
   }
 
-  return doc.output("blob");
+  return doc!.output("blob");
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
