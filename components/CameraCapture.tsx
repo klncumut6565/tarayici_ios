@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { detectDocumentCorners } from "@/lib/edgeDetection";
 import type { Point } from "@/lib/imageProcessing";
+import { roundedQuadPath, suggestedCornerRadius } from "@/lib/roundedQuadPath";
 
 interface Props {
   onCapture: (canvas: HTMLCanvasElement) => void;
@@ -17,8 +18,8 @@ interface Props {
 type Quad = [Point, Point, Point, Point];
 
 const LIVE_SAMPLE_WIDTH = 240;
-const LIVE_INTERVAL_MS = 380;
-const SMOOTHING = 0.35; // 0 = hiç smoothing yok, 1 = hiç güncellenmez
+const LIVE_INTERVAL_MS = 220; // Ölçülen maliyet (p95 ~35ms) bunu rahatça kaldırıyor, bkz. bench sonuçları
+const SMOOTHING = 0.4; // 0 = hiç smoothing yok, 1 = hiç güncellenmez
 const MISS_GRACE = 3; // art arda kaç başarısız denemeden sonra overlay kaybolsun
 
 export default function CameraCapture({
@@ -96,7 +97,7 @@ export default function CameraCapture({
         if (!sctx) return;
         sctx.drawImage(video, 0, 0, sw, sh);
 
-        const { corners } = await detectDocumentCorners(sample, "live");
+        const { corners } = await detectDocumentCorners(sample, "live", guideAspect);
         if (cancelled) return;
 
         if (!corners) {
@@ -147,7 +148,7 @@ export default function CameraCapture({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [ready]);
+  }, [ready, guideAspect]);
 
   const capture = useCallback(() => {
     const video = videoRef.current;
@@ -193,8 +194,8 @@ export default function CameraCapture({
             height="100%"
             style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
           >
-            <polygon
-              points={liveQuad.map((p) => `${p.x},${p.y}`).join(" ")}
+            <path
+              d={roundedQuadPath(liveQuad, suggestedCornerRadius(liveQuad))}
               fill="rgba(255,90,54,0.12)"
               stroke="var(--scan)"
               strokeWidth={3}

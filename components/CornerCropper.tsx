@@ -3,17 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { Point } from "@/lib/imageProcessing";
 import { detectDocumentCorners } from "@/lib/edgeDetection";
+import { roundedQuadPath, suggestedCornerRadius } from "@/lib/roundedQuadPath";
 
 interface Props {
   image: HTMLCanvasElement;
   onConfirm: (corners: [Point, Point, Point, Point]) => void;
   /** İptal/geri tuşuna basılınca çağrılır. Verilmezse tuş gösterilmez. */
   onCancel?: () => void;
+  /** Beklenen en/boy oranı (bkz. lib/documentSizes.ts: A4_ASPECT, ID_CARD_ASPECT). Otomatik algılamanın doğru bölgeyi seçmesine yardımcı olur. */
+  expectedAspect?: number;
 }
 
 type CornerKey = "tl" | "tr" | "br" | "bl";
 
-export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
+export default function CornerCropper({ image, onConfirm, onCancel, expectedAspect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
   const [corners, setCorners] = useState<Record<CornerKey, Point> | null>(null);
@@ -56,7 +59,7 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
     setDetecting(true);
     setAutoDetected(false);
     setDebugInfo(null);
-    detectDocumentCorners(image, "capture")
+    detectDocumentCorners(image, "capture", expectedAspect)
       .then(({ corners: found, debug }) => {
         setDebugInfo(debug);
         if (cancelled || !found || userAdjusted.current) return;
@@ -86,7 +89,7 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
       cancelled = true;
       window.removeEventListener("resize", measure);
     };
-  }, [image]);
+  }, [image, expectedAspect]);
 
   function handlePointerDown(key: CornerKey) {
     dragging.current = key;
@@ -172,8 +175,11 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
                 height={displaySize.height}
                 style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
               >
-                <polygon
-                  points={`${corners.tl.x},${corners.tl.y} ${corners.tr.x},${corners.tr.y} ${corners.br.x},${corners.br.y} ${corners.bl.x},${corners.bl.y}`}
+                <path
+                  d={roundedQuadPath(
+                    [corners.tl, corners.tr, corners.br, corners.bl],
+                    suggestedCornerRadius([corners.tl, corners.tr, corners.br, corners.bl])
+                  )}
                   fill="rgba(255,90,54,0.14)"
                   stroke="var(--scan)"
                   strokeWidth={2}

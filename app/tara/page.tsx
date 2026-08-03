@@ -9,6 +9,7 @@ import { warpToRectangle, canvasToBlob, blobToImage, type Point } from "@/lib/im
 import { addPage, createDocument } from "@/lib/db";
 import { takePendingImport } from "@/lib/pendingImport";
 import { readIntegrationOptions, appendIntegrationParams } from "@/lib/scannerModule";
+import { A4_ASPECT, ID_CARD_ASPECT } from "@/lib/documentSizes";
 import type { FilterType } from "@/lib/types";
 
 type Step = "kamera" | "kirp" | "ayarla";
@@ -32,6 +33,9 @@ function TaraFlow() {
   const [warped, setWarped] = useState<HTMLCanvasElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [pageCount, setPageCount] = useState(0);
+  // A4 belge ve kimlik/kart (ISO/IEC 7810 ID-1, kredi kartıyla aynı
+  // fiziksel boyut: 85,60mm x 53,98mm) oranları lib/documentSizes.ts'ten.
+  const expectedAspect = isKimlik ? ID_CARD_ASPECT : A4_ASPECT;
 
   // Ana sayfadan "Galeri" veya "Dosyalardan Yükle" ile gelindiyse, bekleyen
   // görüntüyü doğrudan kırpma adımına aktar; kamera adımını atla.
@@ -106,7 +110,7 @@ function TaraFlow() {
           <CameraCapture
             onCapture={handleCapture}
             onCancel={cancelToStart}
-            guideAspect={isKimlik ? 1.586 : 1 / 1.4142}
+            guideAspect={expectedAspect}
             guideLabel={isKimlik ? "KİMLİĞİ ÇERÇEVEYE YERLEŞTİR (ÖN/ARKA AYRI ÇEK)" : "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR"}
           />
           {pageCount > 0 && (
@@ -135,6 +139,7 @@ function TaraFlow() {
         <CornerCropper
           image={captured}
           onConfirm={handleCropConfirm}
+          expectedAspect={expectedAspect}
           onCancel={() => {
             setCaptured(null);
             setStep("kamera");

@@ -1,8 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { ScanPage } from "./types";
-
-const A4_WIDTH_MM = 210;
-const A4_HEIGHT_MM = 297;
+import { A4_WIDTH_MM, A4_HEIGHT_MM } from "./documentSizes";
 
 function blobToDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
