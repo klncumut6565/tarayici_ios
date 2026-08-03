@@ -29,7 +29,7 @@ export default function CameraCapture({
     async function start() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1920 } },
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 1706 } },
           audio: false,
         });
         if (cancelled) {
@@ -135,7 +135,6 @@ export default function CameraCapture({
             } as React.CSSProperties
           }
         >
-          <div className="scanline" />
           {[
             { top: -1, left: -1 },
             { top: -1, right: -1 },
@@ -199,34 +198,6 @@ export default function CameraCapture({
         />
       </div>
 
-      <style jsx>{`
-        .scanline {
-          position: absolute;
-          left: 0;
-          right: 0;
-          height: 2px;
-          background: var(--scan);
-          box-shadow: 0 0 8px 1px var(--scan);
-          animation: sweep 2.2s ease-in-out infinite;
-        }
-        @keyframes sweep {
-          0% {
-            top: 0%;
-          }
-          50% {
-            top: 100%;
-          }
-          100% {
-            top: 0%;
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .scanline {
-            animation: none;
-            top: 50%;
-          }
-        }
-      `}</style>
     </div>
   );
 }
