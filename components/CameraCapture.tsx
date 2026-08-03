@@ -8,12 +8,15 @@ interface Props {
   guideAspect?: number;
   /** Kılavuz çerçevenin altındaki açıklama metni. */
   guideLabel?: string;
+  /** Kapatma (geri) tuşuna basılınca çağrılır. Verilmezse tuş gösterilmez. */
+  onCancel?: () => void;
 }
 
 export default function CameraCapture({
   onCapture,
   guideAspect = 1 / 1.4142,
   guideLabel = "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR",
+  onCancel,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +89,30 @@ export default function CameraCapture({
         muted
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
+
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          aria-label="Kapat"
+          style={{
+            position: "absolute",
+            top: "calc(16px + var(--safe-top))",
+            left: 16,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.5)",
+            color: "#fff",
+            fontSize: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 6,
+          }}
+        >
+          ×
+        </button>
+      )}
 
       {ready && (
         <div

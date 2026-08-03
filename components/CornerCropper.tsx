@@ -7,11 +7,13 @@ import { detectDocumentCorners } from "@/lib/edgeDetection";
 interface Props {
   image: HTMLCanvasElement;
   onConfirm: (corners: [Point, Point, Point, Point]) => void;
+  /** İptal/geri tuşuna basılınca çağrılır. Verilmezse tuş gösterilmez. */
+  onCancel?: () => void;
 }
 
 type CornerKey = "tl" | "tr" | "br" | "bl";
 
-export default function CornerCropper({ image, onConfirm }: Props) {
+export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
   const [corners, setCorners] = useState<Record<CornerKey, Point> | null>(null);
@@ -120,6 +122,29 @@ export default function CornerCropper({ image, onConfirm }: Props) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000", display: "flex", flexDirection: "column" }}>
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          aria-label="İptal / geri"
+          style={{
+            position: "absolute",
+            top: "calc(16px + var(--safe-top))",
+            left: 16,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.55)",
+            color: "#fff",
+            fontSize: 18,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 15,
+          }}
+        >
+          ×
+        </button>
+      )}
       <div
         ref={containerRef}
         onPointerMove={handlePointerMove}

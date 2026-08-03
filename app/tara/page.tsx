@@ -94,12 +94,18 @@ function TaraFlow() {
     router.push(appendIntegrationParams(path, integration));
   }
 
+  function cancelToStart() {
+    const path = docIdRef.current ? `/belge/${docIdRef.current}` : "/";
+    router.push(path);
+  }
+
   return (
     <>
       {step === "kamera" && (
         <>
           <CameraCapture
             onCapture={handleCapture}
+            onCancel={cancelToStart}
             guideAspect={isKimlik ? 1.586 : 1 / 1.4142}
             guideLabel={isKimlik ? "KİMLİĞİ ÇERÇEVEYE YERLEŞTİR (ÖN/ARKA AYRI ÇEK)" : "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR"}
           />
@@ -126,7 +132,14 @@ function TaraFlow() {
       )}
 
       {step === "kirp" && captured && (
-        <CornerCropper image={captured} onConfirm={handleCropConfirm} />
+        <CornerCropper
+          image={captured}
+          onConfirm={handleCropConfirm}
+          onCancel={() => {
+            setCaptured(null);
+            setStep("kamera");
+          }}
+        />
       )}
 
       {step === "ayarla" && warped && (
