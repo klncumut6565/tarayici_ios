@@ -235,6 +235,22 @@ export default function HomePage() {
               >
                 {doc.pageCount} SF
               </div>
+              <div
+                className="mono"
+                style={{
+                  position: "absolute",
+                  bottom: 6,
+                  right: 6,
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--scan)",
+                  background: "rgba(10,12,14,0.7)",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                PDF
+              </div>
             </div>
             <div style={{ marginTop: 6, fontSize: 13 }}>{doc.title}</div>
             <div className="eyebrow" style={{ fontSize: 10 }}>

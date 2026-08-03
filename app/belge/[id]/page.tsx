@@ -11,6 +11,7 @@ import {
   markDocumentUploaded,
   markDocumentPending,
   setDocumentType,
+  renameDocument,
 } from "@/lib/db";
 import { DOC_TYPES } from "@/lib/types";
 import type { ScanDocument, ScanPage } from "@/lib/types";
@@ -46,6 +47,8 @@ function DocumentView() {
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [sendingIntegration, setSendingIntegration] = useState(false);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
 
   async function reload() {
     const [d, p] = await Promise.all([getDocument(id), getPagesForDoc(id)]);
@@ -144,6 +147,21 @@ function DocumentView() {
     reload();
   }
 
+  function startRename() {
+    if (!doc) return;
+    setTitleDraft(doc.title);
+    setEditingTitle(true);
+  }
+
+  async function saveTitle() {
+    setEditingTitle(false);
+    if (!doc) return;
+    const trimmed = titleDraft.trim();
+    if (!trimmed || trimmed === doc.title) return;
+    await renameDocument(doc.id, trimmed);
+    reload();
+  }
+
   if (!doc) {
     return (
       <main style={{ padding: 20 }}>
@@ -161,9 +179,43 @@ function DocumentView() {
       </button>
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, margin: "0 0 4px", fontWeight: 700 }}>{doc.title}</h1>
-          <div className="eyebrow">{pages.length} SAYFA</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                if (e.key === "Escape") setEditingTitle(false);
+              }}
+              className="mono"
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                background: "var(--surface)",
+                border: "1px solid var(--scan)",
+                borderRadius: "var(--radius-sm)",
+                padding: "5px 8px",
+                color: "var(--ink)",
+                width: "100%",
+                marginBottom: 4,
+              }}
+            />
+          ) : (
+            <button
+              onClick={startRename}
+              aria-label="Belgeyi yeniden adlandır"
+              style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4, textAlign: "left", maxWidth: "100%" }}
+            >
+              <h1 style={{ fontSize: 22, margin: 0, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>{doc.title}</h1>
+              <span style={{ color: "var(--ink-dim)", fontSize: 13, flexShrink: 0 }}>✎</span>
+            </button>
+          )}
+          <div className="eyebrow">
+            {pages.length} SAYFA · PDF
+          </div>
         </div>
         <button
           onClick={toggleUploadStatus}

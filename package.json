@@ -9,11 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@techstark/opencv-js": "^4.10.0-release.1",
+    "idb": "^8.0.0",
+    "jspdf": "^2.5.1",
     "next": "14.2.35",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "jspdf": "^2.5.1",
-    "idb": "^8.0.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^20",

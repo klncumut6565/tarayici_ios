@@ -100,6 +100,17 @@ export async function getDocument(id: string): Promise<ScanDocument | undefined>
   return db.get("documents", id);
 }
 
+export async function renameDocument(id: string, title: string): Promise<void> {
+  const db = await getDB();
+  const doc = await db.get("documents", id);
+  if (!doc) return;
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  doc.title = trimmed;
+  doc.updatedAt = Date.now();
+  await db.put("documents", doc);
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   const db = await getDB();
   const tx = db.transaction(["documents", "pages"], "readwrite");
