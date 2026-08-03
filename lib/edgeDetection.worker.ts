@@ -1,21 +1,32 @@
 /// <reference lib="webworker" />
 
-// Kenar algılamayı burada, ana thread DIŞINDA çalıştırıyoruz ki arayüz
-// (geri tuşu, animasyonlar) hiçbir zaman donmasın.
+// KENAR ALGILAMA — OpenCV/WASM YOK.
 //
-// NOT: Önceki sürüm ham Sobel gradyanında "kenardan içeri ilk güçlü
-// nokta"yı arıyordu. Bu yöntem, arka plan dokuluysa (masa deseni, gölge,
-// ahşap desen) görüntünün kenarına yakın yanlış bir noktada durabiliyor
-// ve gerçek kağıt sınırını hiç bulamıyordu.
+// Önceki sürüm (v2) satır/sütun projeksiyonuyla sadece EKSENE PARALEL
+// (axis-aligned) bir kutu buluyordu. Bu, belge kameraya paralel/düz
+// tutulduğunda işe yarıyordu ama YAMUK/AÇILI çekimlerde ya arka planı
+// içine alıyor ya da belgeyi tam kapsamıyordu — çünkü döndürülmüş bir
+// dikdörtgenin ekseneye paralel sınırlayıcı kutusu, gerçek kenarlarla
+// örtüşmez.
 //
-// Bunun yerine "beyaz kağıt" varsayımını doğrudan kullanan, çok daha
-// dayanıklı bir yöntem: her pikselin ne kadar "kağıt gibi" (parlak +
-// düşük renk doygunluğu, yani beyaz/gri/hafif krem) olduğunu puanlayıp
-// bir ikili maske çıkarıyoruz. Sonra bu maskeyi satır/sütun bazında
-// TOPLAM kaplama oranına göre projeksiyonluyoruz — tek bir pikselin
-// yanlış tetiklemesi yerine, "bu satırın/sütunun çoğu kağıt mı?"
-// sorusuna bakıyoruz. Bu, doku/gölge kaynaklı yanlış pozitiflere karşı
-// çok daha sağlam.
+// Bu sürüm (v3) gerçek bir DÖNDÜRÜLMÜŞ dikdörtgen buluyor, tamamen saf
+// JS/TypedArray ile, OpenCV'nin ~8-10MB WASM'ı olmadan:
+//
+//   1) "Kağıt gibi" piksel maskesi çıkar (parlaklık + düşük doygunluk)
+//   2) Maskedeki EN BÜYÜK bağlı bileşeni bul (flood fill, tek geçiş
+//      yığın tabanlı — küçük parazit lekelerini eler)
+//   3) O bileşenin sınır (boundary) piksellerini topla — iç dolgu değil,
+//      sadece dış hat (bu, sonraki adımı O(çevre) yapar, O(alan) değil)
+//   4) Sınır noktalarının DIŞBÜKEY GÖVDESİNİ (convex hull) çıkar
+//      (monotone chain, O(n log n))
+//   5) "Rotating calipers" ile gövdeyi saran EN KÜÇÜK ALANLI döndürülmüş
+//      dikdörtgeni bul (klasik hesaplamalı geometri algoritması —
+//      OpenCV'nin minAreaRect'i de bunu yapar, ama biz kendi
+//      implementasyonumuzu kullanıyoruz)
+//
+// Toplam bellek: birkaç Float32Array/Uint8Array, downscale edilmiş
+// görüntü boyutunda (tipik ~900x700 = ~2.5MB toplam). WASM indirme/
+// başlatma yok, tarayıcı motoru dışında ek çalışma zamanı yok.
 
 interface Point {
   x: number;
@@ -25,13 +36,23 @@ interface Point {
 interface RequestMsg {
   id: number;
   imageData: ImageData;
+  /** "live": kamera önizlemesinde sık/düşük-çözünürlüklü tarama. "capture": çekim sonrası tek seferlik, daha toleranslı. */
+  mode: "live" | "capture";
 }
 
-function detect(imageData: ImageData): { corners: [Point, Point, Point, Point] | null; debug: string } {
+interface DetectResult {
+  corners: [Point, Point, Point, Point] | null;
+  debug: string;
+}
+
+// ---------------------------------------------------------------------
+// 1) Kağıt maskesi
+// ---------------------------------------------------------------------
+
+function buildPaperMask(imageData: ImageData): { mask: Uint8Array; paperCount: number; brightnessThreshold: number } {
   const { width: w, height: h, data } = imageData;
   const n = w * h;
 
-  // 1) Her piksel için parlaklık ve renk doygunluğu (max-min kanal farkı).
   const brightness = new Float32Array(n);
   const saturation = new Float32Array(n);
   let brightSum = 0;
@@ -46,125 +67,285 @@ function detect(imageData: ImageData): { corners: [Point, Point, Point, Point] |
     brightSum += brightness[i];
   }
   const avgBrightness = brightSum / n;
-
-  // 2) "Kağıt gibi" eşiği: ortalama parlaklığın biraz altı (kağıt genelde
-  // sahnenin en parlak/en nötr yüzeyidir), doygunluk da düşük olmalı.
-  const brightnessThreshold = Math.min(235, Math.max(120, avgBrightness * 0.82));
-  const saturationThreshold = 60;
+  const brightnessThreshold = Math.min(235, Math.max(115, avgBrightness * 0.8));
+  const saturationThreshold = 65;
 
   const mask = new Uint8Array(n);
-  let paperPixelCount = 0;
+  let paperCount = 0;
   for (let i = 0; i < n; i++) {
     if (brightness[i] >= brightnessThreshold && saturation[i] <= saturationThreshold) {
       mask[i] = 1;
-      paperPixelCount++;
+      paperCount++;
     }
   }
 
-  if (paperPixelCount < n * 0.08) {
-    const debug = `Yeterince parlak/beyaz bir bölge bulunamadı (kaplama %${((paperPixelCount / n) * 100).toFixed(
-      1
-    )}). Işık çok az olabilir ya da kağıt arka planla yeterince kontrast oluşturmuyor.`;
-    return { corners: null, debug };
-  }
+  return { mask, paperCount, brightnessThreshold };
+}
 
-  // 3) Satır/sütun projeksiyonu: her satırdaki ve sütundaki "kağıt"
-  // piksel sayısını topla.
-  const rowSum = new Int32Array(h);
-  const colSum = new Int32Array(w);
-  for (let y = 0; y < h; y++) {
-    let rs = 0;
-    const base = y * w;
-    for (let x = 0; x < w; x++) {
-      if (mask[base + x]) {
-        rs++;
-        colSum[x]++;
+// ---------------------------------------------------------------------
+// 2) En büyük bağlı bileşen (iterative flood fill, yığın Int32Array)
+// ---------------------------------------------------------------------
+
+function largestComponent(mask: Uint8Array, w: number, h: number): { label: Int32Array; mainLabel: number; mainSize: number } {
+  const n = w * h;
+  const label = new Int32Array(n).fill(-1);
+  const stack = new Int32Array(n);
+  let nextLabel = 0;
+  let bestLabel = -1;
+  let bestSize = 0;
+
+  for (let start = 0; start < n; start++) {
+    if (mask[start] !== 1 || label[start] !== -1) continue;
+
+    let sp = 0;
+    stack[sp++] = start;
+    label[start] = nextLabel;
+    let size = 0;
+
+    while (sp > 0) {
+      const idx = stack[--sp];
+      size++;
+      const x = idx % w;
+      const y = (idx - x) / w;
+
+      // 4-komşuluk
+      if (x > 0) {
+        const ni = idx - 1;
+        if (mask[ni] === 1 && label[ni] === -1) {
+          label[ni] = nextLabel;
+          stack[sp++] = ni;
+        }
       }
-    }
-    rowSum[y] = rs;
-  }
-
-  // 4) Üst/alt sınır: satırın en az %55'i kağıt olan EN UZUN ardışık satır
-  // aralığını bul (küçük gürültü boşluklarına tolerans tanıyarak).
-  const rowThreshold = w * 0.55;
-  const colThreshold = h * 0.55;
-
-  function longestRun(sums: Int32Array, len: number, threshold: number): [number, number] | null {
-    let bestStart = -1;
-    let bestEnd = -1;
-    let curStart = -1;
-    let gap = 0;
-    const maxGap = Math.max(2, Math.round(len * 0.02));
-
-    for (let i = 0; i < len; i++) {
-      const isAbove = sums[i] >= threshold;
-      if (isAbove) {
-        if (curStart === -1) curStart = i;
-        gap = 0;
-      } else if (curStart !== -1) {
-        gap++;
-        if (gap > maxGap) {
-          const end = i - gap;
-          if (end - curStart > bestEnd - bestStart) {
-            bestStart = curStart;
-            bestEnd = end;
-          }
-          curStart = -1;
-          gap = 0;
+      if (x < w - 1) {
+        const ni = idx + 1;
+        if (mask[ni] === 1 && label[ni] === -1) {
+          label[ni] = nextLabel;
+          stack[sp++] = ni;
+        }
+      }
+      if (y > 0) {
+        const ni = idx - w;
+        if (mask[ni] === 1 && label[ni] === -1) {
+          label[ni] = nextLabel;
+          stack[sp++] = ni;
+        }
+      }
+      if (y < h - 1) {
+        const ni = idx + w;
+        if (mask[ni] === 1 && label[ni] === -1) {
+          label[ni] = nextLabel;
+          stack[sp++] = ni;
         }
       }
     }
-    if (curStart !== -1) {
-      const end = len - 1 - gap;
-      if (end - curStart > bestEnd - bestStart) {
-        bestStart = curStart;
-        bestEnd = end;
-      }
+
+    if (size > bestSize) {
+      bestSize = size;
+      bestLabel = nextLabel;
     }
-    return bestStart === -1 ? null : [bestStart, bestEnd];
+    nextLabel++;
   }
 
-  const rowRun = longestRun(rowSum, h, rowThreshold);
-  const colRun = longestRun(colSum, w, colThreshold);
+  return { label, mainLabel: bestLabel, mainSize: bestSize };
+}
 
-  if (!rowRun || !colRun) {
-    const debug = `Beyaz bölge bulundu ama net bir dörtgen sınırı çıkarılamadı (satır eşiği: ${rowRun ? "ok" : "başarısız"}, sütun eşiği: ${
-      colRun ? "ok" : "başarısız"
-    }). Kağıt çerçeveyi tam doldurmuyor olabilir.`;
-    return { corners: null, debug };
+// ---------------------------------------------------------------------
+// 3) Sınır (boundary) noktalarını topla
+// ---------------------------------------------------------------------
+
+function extractBoundaryPoints(label: Int32Array, mainLabel: number, w: number, h: number): Point[] {
+  const points: Point[] = [];
+  for (let y = 0; y < h; y++) {
+    const base = y * w;
+    for (let x = 0; x < w; x++) {
+      const idx = base + x;
+      if (label[idx] !== mainLabel) continue;
+      const isEdge =
+        x === 0 ||
+        x === w - 1 ||
+        y === 0 ||
+        y === h - 1 ||
+        label[idx - 1] !== mainLabel ||
+        label[idx + 1] !== mainLabel ||
+        label[idx - w] !== mainLabel ||
+        label[idx + w] !== mainLabel;
+      if (isEdge) points.push({ x, y });
+    }
+  }
+  return points;
+}
+
+// ---------------------------------------------------------------------
+// 4) Convex hull — monotone chain
+// ---------------------------------------------------------------------
+
+function cross(o: Point, a: Point, b: Point): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+function convexHull(pointsIn: Point[]): Point[] {
+  const points = [...pointsIn].sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+  const n = points.length;
+  if (n < 3) return points;
+
+  const lower: Point[] = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
   }
 
-  const [top, bottom] = rowRun;
-  const [left, right] = colRun;
-
-  if (right - left < w * 0.25 || bottom - top < h * 0.25) {
-    const debug = `Bulunan bölge çok küçük (${(((right - left) * (bottom - top)) / n * 100).toFixed(
-      1
-    )}% alan). Belgeyi çerçeveye daha çok yaklaştır.`;
-    return { corners: null, debug };
+  const upper: Point[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
   }
 
-  const ratio = ((right - left) * (bottom - top)) / n;
-  const debug = `Başarılı: sol=${left}, sağ=${right}, üst=${top}, alt=${bottom} (alan oranı %${(ratio * 100).toFixed(
-    1
-  )}, kağıt eşiği=${brightnessThreshold.toFixed(0)}).`;
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
 
-  return {
-    corners: [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottom },
-      { x: left, y: bottom },
-    ],
-    debug,
-  };
+// ---------------------------------------------------------------------
+// 5) Rotating calipers — minimum alanlı döndürülmüş dikdörtgen
+// ---------------------------------------------------------------------
+
+function minAreaRect(hull: Point[]): { corners: [Point, Point, Point, Point]; area: number } | null {
+  const n = hull.length;
+  if (n < 3) return null;
+
+  let best: { area: number; corners: [Point, Point, Point, Point] } | null = null;
+
+  for (let i = 0; i < n; i++) {
+    const p1 = hull[i];
+    const p2 = hull[(i + 1) % n];
+    const ex = p2.x - p1.x;
+    const ey = p2.y - p1.y;
+    const len = Math.hypot(ex, ey);
+    if (len < 1e-6) continue;
+    const ux = ex / len;
+    const uy = ey / len;
+    const vx = -uy;
+    const vy = ux;
+
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minV = Infinity;
+    let maxV = -Infinity;
+
+    for (const q of hull) {
+      const rx = q.x - p1.x;
+      const ry = q.y - p1.y;
+      const u = rx * ux + ry * uy;
+      const v = rx * vx + ry * vy;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+
+    const width = maxU - minU;
+    const height = maxV - minV;
+    const area = width * height;
+
+    if (!best || area < best.area) {
+      const corner = (u: number, v: number): Point => ({
+        x: p1.x + u * ux + v * vx,
+        y: p1.y + u * uy + v * vy,
+      });
+      best = {
+        area,
+        corners: [corner(minU, minV), corner(maxU, minV), corner(maxU, maxV), corner(minU, maxV)],
+      };
+    }
+  }
+
+  return best;
+}
+
+/** Köşeleri sol-üst, sağ-üst, sağ-alt, sol-alt sırasına diz. */
+function orderCorners(pts: [Point, Point, Point, Point]): [Point, Point, Point, Point] {
+  const bySum = [...pts].sort((a, b) => a.x + a.y - (b.x + b.y));
+  const tl = bySum[0];
+  const br = bySum[3];
+  const remaining = pts.filter((p) => p !== tl && p !== br);
+  const [a, b] = remaining;
+  const tr = a.x - a.y > b.x - b.y ? a : b;
+  const bl = tr === a ? b : a;
+  return [tl, tr, br, bl];
+}
+
+// ---------------------------------------------------------------------
+// Ana algılama fonksiyonu
+// ---------------------------------------------------------------------
+
+function detect(imageData: ImageData, mode: "live" | "capture"): DetectResult {
+  const { width: w, height: h } = imageData;
+  const n = w * h;
+
+  const { mask, paperCount, brightnessThreshold } = buildPaperMask(imageData);
+  const minCoverage = mode === "live" ? 0.05 : 0.08;
+
+  if (paperCount < n * minCoverage) {
+    return {
+      corners: null,
+      debug: `Yeterince parlak/beyaz bölge yok (kaplama %${((paperCount / n) * 100).toFixed(1)}).`,
+    };
+  }
+
+  const { label, mainLabel, mainSize } = largestComponent(mask, w, h);
+  if (mainLabel === -1) {
+    return { corners: null, debug: "Bağlı bileşen bulunamadı." };
+  }
+
+  const minComponentFraction = mode === "live" ? 0.12 : 0.2;
+  if (mainSize < n * minComponentFraction) {
+    return {
+      corners: null,
+      debug: `En büyük bölge çok küçük (alan %${((mainSize / n) * 100).toFixed(1)}). Belgeyi çerçeveye yaklaştır.`,
+    };
+  }
+
+  const boundary = extractBoundaryPoints(label, mainLabel, w, h);
+  if (boundary.length < 8) {
+    return { corners: null, debug: "Sınır noktası yetersiz." };
+  }
+
+  const hull = convexHull(boundary);
+  if (hull.length < 3) {
+    return { corners: null, debug: "Dışbükey gövde çıkarılamadı." };
+  }
+
+  const rect = minAreaRect(hull);
+  if (!rect) {
+    return { corners: null, debug: "Döndürülmüş dikdörtge bulunamadı." };
+  }
+
+  // Bulunan dikdörtgenin alanı görüntüye kıyasla makul mü? (çok ince/
+  // uzun ya da tüm kareyi kaplayan yanlış sonuçları ele)
+  const areaRatio = rect.area / n;
+  if (areaRatio < 0.15 || areaRatio > 0.97) {
+    return {
+      corners: null,
+      debug: `Bulunan dikdörtgen oranı şüpheli (%${(areaRatio * 100).toFixed(1)}).`,
+    };
+  }
+
+  const ordered = orderCorners(rect.corners);
+  const debug = `Başarılı: alan oranı %${(areaRatio * 100).toFixed(1)}, hull=${hull.length} nokta, eşik=${brightnessThreshold.toFixed(0)}.`;
+
+  return { corners: ordered, debug };
 }
 
 self.onmessage = (e: MessageEvent<RequestMsg>) => {
-  const { id, imageData } = e.data;
+  const { id, imageData, mode } = e.data;
   try {
-    const { corners, debug } = detect(imageData);
-    (self as unknown as Worker).postMessage({ id, corners, debug });
+    const result = detect(imageData, mode ?? "capture");
+    (self as unknown as Worker).postMessage({ id, ...result });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     (self as unknown as Worker).postMessage({ id, corners: null, debug: `Beklenmeyen hata: ${msg}` });

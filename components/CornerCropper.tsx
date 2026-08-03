@@ -56,7 +56,7 @@ export default function CornerCropper({ image, onConfirm, onCancel }: Props) {
     setDetecting(true);
     setAutoDetected(false);
     setDebugInfo(null);
-    detectDocumentCorners(image)
+    detectDocumentCorners(image, "capture")
       .then(({ corners: found, debug }) => {
         setDebugInfo(debug);
         if (cancelled || !found || userAdjusted.current) return;
