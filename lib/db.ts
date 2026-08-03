@@ -79,6 +79,16 @@ export async function markDocumentPending(id: string): Promise<void> {
   await db.put("documents", doc);
 }
 
+/** Belgeye TMGD klasörleme için tür etiketi atar (SDS/ADR/Fatura/...). */
+export async function setDocumentType(id: string, docType: string): Promise<void> {
+  const db = await getDB();
+  const doc = await db.get("documents", id);
+  if (!doc) return;
+  doc.docType = docType;
+  doc.updatedAt = Date.now();
+  await db.put("documents", doc);
+}
+
 export async function listDocuments(): Promise<ScanDocument[]> {
   const db = await getDB();
   const all = await db.getAllFromIndex("documents", "by-updatedAt");

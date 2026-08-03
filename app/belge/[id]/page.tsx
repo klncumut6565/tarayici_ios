@@ -10,7 +10,9 @@ import {
   updatePage,
   markDocumentUploaded,
   markDocumentPending,
+  setDocumentType,
 } from "@/lib/db";
+import { DOC_TYPES } from "@/lib/types";
 import type { ScanDocument, ScanPage } from "@/lib/types";
 import { pagesToPDF, downloadBlob, sharePDF } from "@/lib/pdf";
 import { blobToImage, canvasToBlob, rotateCanvas90 } from "@/lib/imageProcessing";
@@ -136,6 +138,12 @@ function DocumentView() {
     reload();
   }
 
+  async function chooseDocType(type: string) {
+    if (!doc) return;
+    await setDocumentType(doc.id, doc.docType === type ? "" : type);
+    reload();
+  }
+
   if (!doc) {
     return (
       <main style={{ padding: 20 }}>
@@ -176,7 +184,37 @@ function DocumentView() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, margin: "20px 0 24px" }}>
+      <div className="eyebrow" style={{ marginTop: 18, marginBottom: 8 }}>
+        BELGE TÜRÜ
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+        {DOC_TYPES.map((type) => {
+          const active = doc.docType === type;
+          return (
+            <button
+              key={type}
+              onClick={() => chooseDocType(type)}
+              className="mono"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "7px 12px",
+                borderRadius: 999,
+                background: active ? "var(--scan)" : "var(--surface)",
+                color: active ? "#1a0a05" : "var(--ink-dim)",
+                border: `1px solid ${active ? "var(--scan)" : "var(--line)"}`,
+              }}
+            >
+              {type}
+            </button>
+          );
+        })}
+      </div>
+      <div className="eyebrow" style={{ marginBottom: 20, fontSize: 9, opacity: 0.6 }}>
+        {doc.docType ? `TMGD'ye gönderildiğinde "${doc.docType}" klasörüne yönlendirilir` : "Seçilirse TMGD'de otomatik klasörlenir"}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
         {pages.map((page, i) => (
           <div key={page.id} style={{ background: "var(--surface)", borderRadius: "var(--radius-md)", overflow: "hidden", border: "1px solid var(--line)" }}>
             <div style={{ aspectRatio: "3/4", background: "#000" }}>

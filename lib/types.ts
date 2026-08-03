@@ -23,4 +23,10 @@ export interface ScanDocument {
   /** uploadStatus "uploaded" olduğunda ne zaman/nereye gönderildiği. */
   uploadedAt?: number;
   uploadedVia?: "postMessage" | "callback" | "manual";
+  /** TMGD tarafında otomatik klasörleme için belge türü (SDS, ADR, Fatura, ...). */
+  docType?: string;
 }
+
+/** Belge türü etiketleri — TMGD sisteminde otomatik klasörlemeye karşılık gelir. */
+export const DOC_TYPES = ["SDS", "ADR", "Fatura", "İrsaliye", "TMGD Evrakı", "Diğer"] as const;
+export type DocType = (typeof DOC_TYPES)[number];

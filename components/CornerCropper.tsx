@@ -18,6 +18,7 @@ export default function CornerCropper({ image, onConfirm }: Props) {
   const [detecting, setDetecting] = useState(true);
   const [autoDetected, setAutoDetected] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const [draggingKey, setDraggingKey] = useState<CornerKey | null>(null);
   const dragging = useRef<CornerKey | null>(null);
   const userAdjusted = useRef(false);
 
@@ -88,6 +89,7 @@ export default function CornerCropper({ image, onConfirm }: Props) {
   function handlePointerDown(key: CornerKey) {
     dragging.current = key;
     userAdjusted.current = true;
+    setDraggingKey(key);
   }
 
   function handlePointerMove(e: React.PointerEvent) {
@@ -104,6 +106,7 @@ export default function CornerCropper({ image, onConfirm }: Props) {
 
   function handlePointerUp() {
     dragging.current = null;
+    setDraggingKey(null);
   }
 
   function confirm() {
@@ -171,6 +174,10 @@ export default function CornerCropper({ image, onConfirm }: Props) {
                   }}
                 />
               ))}
+
+            {corners && draggingKey && (
+              <Magnifier point={corners[draggingKey]} imgUrl={imgUrl} displaySize={displaySize} />
+            )}
           </div>
         )}
       </div>
@@ -219,6 +226,56 @@ export default function CornerCropper({ image, onConfirm }: Props) {
           DÜZELT VE DEVAM ET
         </button>
       </div>
+    </div>
+  );
+}
+
+const LOUPE_SIZE = 108;
+const LOUPE_ZOOM = 2.6;
+
+/**
+ * Sürüklenen köşenin üstünde açılan büyüteç: parmağın altında kalan
+ * bölgeyi büyütülmüş olarak gösterir, tam ortadaki artı işareti gerçek
+ * hedef noktayı belirtir. photoscanner-web'deki hassas kırpma hissi.
+ */
+function Magnifier({
+  point,
+  imgUrl,
+  displaySize,
+}: {
+  point: Point;
+  imgUrl: string;
+  displaySize: { width: number; height: number };
+}) {
+  // Büyüteci parmağın/dokunuşun üstüne, görünür alan dışına taşmayacak
+  // şekilde yerleştir.
+  const clampedX = Math.min(Math.max(point.x, LOUPE_SIZE / 2), displaySize.width - LOUPE_SIZE / 2);
+  const top = point.y > LOUPE_SIZE + 40 ? point.y - LOUPE_SIZE - 24 : point.y + 36;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: clampedX,
+        top,
+        width: LOUPE_SIZE,
+        height: LOUPE_SIZE,
+        marginLeft: -LOUPE_SIZE / 2,
+        borderRadius: "50%",
+        overflow: "hidden",
+        border: "3px solid var(--scan)",
+        boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+        pointerEvents: "none",
+        backgroundImage: `url(${imgUrl})`,
+        backgroundRepeat: "no-repeat",
+        backgroundSize: `${displaySize.width * LOUPE_ZOOM}px ${displaySize.height * LOUPE_ZOOM}px`,
+        backgroundPosition: `${-(point.x * LOUPE_ZOOM - LOUPE_SIZE / 2)}px ${-(point.y * LOUPE_ZOOM - LOUPE_SIZE / 2)}px`,
+        zIndex: 10,
+      }}
+    >
+      {/* Merkez artı işareti — tam olarak hangi noktanın seçildiğini gösterir */}
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 1, background: "rgba(255,90,54,0.9)" }} />
+      <div style={{ position: "absolute", top: "50%", left: 0, right: 0, height: 1, background: "rgba(255,90,54,0.9)" }} />
     </div>
   );
 }

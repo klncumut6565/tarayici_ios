@@ -109,6 +109,7 @@ export async function deliverDocument(
           title: doc.title,
           pageCount: pages.length,
           filename,
+          docType: doc.docType ?? null,
           pdfBase64: base64,
         },
         "*"
@@ -128,6 +129,7 @@ export async function deliverDocument(
       form.append("documentId", doc.id);
       form.append("title", doc.title);
       form.append("pageCount", String(pages.length));
+      if (doc.docType) form.append("docType", doc.docType);
       Object.entries(integration.callbackFields).forEach(([k, v]) => form.append(k, v));
 
       const res = await fetch(integration.callbackUrl, { method: "POST", body: form });
