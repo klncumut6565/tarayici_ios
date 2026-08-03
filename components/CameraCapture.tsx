@@ -18,9 +18,10 @@ interface Props {
 type Quad = [Point, Point, Point, Point];
 
 const LIVE_SAMPLE_WIDTH = 240;
-const LIVE_INTERVAL_MS = 220; // Ölçülen maliyet (p95 ~35ms) bunu rahatça kaldırıyor, bkz. bench sonuçları
-const SMOOTHING = 0.4; // 0 = hiç smoothing yok, 1 = hiç güncellenmez
+const LIVE_INTERVAL_MS = 160; // Takip kareleri ucuz+öngörülebilir olduğu için sıkılaştırıldı
+const SMOOTHING = 0.45;
 const MISS_GRACE = 3; // art arda kaç başarısız denemeden sonra overlay kaybolsun
+const TRACK_REFRESH_EVERY = 6; // her N karede bir, takip iyi gitse de tam taramayla drift'i düzelt
 
 export default function CameraCapture({
   onCapture,
@@ -37,6 +38,8 @@ export default function CameraCapture({
   const smoothedRef = useRef<Quad | null>(null);
   const missCountRef = useRef(0);
   const busyRef = useRef(false);
+  const lastSampleCornersRef = useRef<Quad | null>(null); // örnekleme (sample canvas) uzayında — takip için anchor
+  const ticksSinceFullRef = useRef(0);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -69,10 +72,12 @@ export default function CameraCapture({
     };
   }, []);
 
-  // Canlı belge takibi: kamera görüntüsünü küçük aralıklarla düşük
-  // çözünürlükte örnekleyip worker'a gönderir, bulunan dörtgeni video
-  // önizlemesi üstüne (object-fit:contain'i hesaba katarak — kırpma yok)
-  // çizer.
+  // Belge takibi: native uygulamaların yaptığı gibi "anchor + takip et".
+  // İlk kare (ya da her TRACK_REFRESH_EVERY karede bir, ya da takip
+  // kaybolduğunda) TAM tarama yapılır (maske+bağlı bileşen+hull). Aradaki
+  // karelerde önceki köşelerin etrafında hafif bir kenar-oturtma
+  // güncellemesi yapılır — sahne karmaşıklığından bağımsız, sabit ve
+  // düşük maliyetli, kare-kareye zıplama olmadan çok daha akıcı.
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -97,10 +102,30 @@ export default function CameraCapture({
         if (!sctx) return;
         sctx.drawImage(video, 0, 0, sw, sh);
 
-        const { corners } = await detectDocumentCorners(sample, "live", guideAspect);
+        const canTrack = lastSampleCornersRef.current !== null && ticksSinceFullRef.current < TRACK_REFRESH_EVERY;
+
+        let result = canTrack
+          ? await detectDocumentCorners(sample, "track", guideAspect, lastSampleCornersRef.current!)
+          : await detectDocumentCorners(sample, "live", guideAspect);
+
+        if (canTrack) {
+          if (result.corners) {
+            ticksSinceFullRef.current++;
+          } else {
+            // Takip kaybedildi — aynı karede hemen tam taramaya düş, bir
+            // sonraki interval'ı beklemeyelim (görünür boşluk olmasın).
+            result = await detectDocumentCorners(sample, "live", guideAspect);
+            ticksSinceFullRef.current = 0;
+          }
+        } else {
+          ticksSinceFullRef.current = 0;
+        }
+
         if (cancelled) return;
+        const { corners } = result;
 
         if (!corners) {
+          lastSampleCornersRef.current = null;
           missCountRef.current++;
           if (missCountRef.current >= MISS_GRACE) {
             smoothedRef.current = null;
@@ -109,6 +134,7 @@ export default function CameraCapture({
           return;
         }
         missCountRef.current = 0;
+        lastSampleCornersRef.current = corners;
 
         // Örnekleme uzayı -> video intrinsic piksel uzayı
         const toVideoSpace = (p: Point): Point => ({ x: (p.x / sw) * vw, y: (p.y / sh) * vh });

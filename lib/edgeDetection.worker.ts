@@ -33,10 +33,12 @@ interface Point {
 interface RequestMsg {
   id: number;
   imageData: ImageData;
-  /** "live": kamera önizlemesinde sık/düşük-çözünürlüklü tarama. "capture": çekim sonrası tek seferlik, daha toleranslı. */
-  mode: "live" | "capture";
+  /** "live": her karede sıfırdan tam tarama. "capture": çekim sonrası tek seferlik. "track": önceki karenin köşelerinden hafif güncelleme (native uygulamaların yaptığı gibi). */
+  mode: "live" | "capture" | "track";
   /** Beklenen en/boy oranı (genişlik/yükseklik), örn. A4 için ~0.707, kimlik için ~1.586. Verilmezse sadece alan büyüklüğüne göre seçilir. */
   expectedAspect?: number;
+  /** mode="track" için zorunlu: bir önceki karede bulunan köşeler (aynı analiz çözünürlüğünde). */
+  previousCorners?: [Point, Point, Point, Point];
 }
 
 interface DetectResult {
@@ -458,19 +460,22 @@ function intersectLines(l1: { point: Point; dir: Point }, l2: { point: Point; di
   return { x: p1.x + d1.x * t, y: p1.y + d1.y * t };
 }
 
-const MAX_REFINE_DISPLACEMENT = 22; // px (analiz çözünürlüğünde) — bundan fazla kayarsa güvenme, orijinali koru
+const MAX_REFINE_DISPLACEMENT = 22; // px (analiz çözünürlüğünde) — capture modunda kaba tahmini düzeltmek için
+const MAX_TRACK_DISPLACEMENT = 40; // px — takipte kamera/el hareketiyle daha büyük kaymalar normal
 
 function refineCorners(
   score: Float32Array,
   w: number,
   h: number,
   corners: [Point, Point, Point, Point],
-  threshold: number
-): [Point, Point, Point, Point] {
+  threshold: number,
+  maxDisplacement: number
+): { corners: [Point, Point, Point, Point]; refinedEdgeCount: number } {
   const lines: (({ point: Point; dir: Point }) | null)[] = [];
   for (let i = 0; i < 4; i++) {
     lines.push(refineEdgeLine(score, w, h, corners[i], corners[(i + 1) % 4], threshold));
   }
+  const refinedEdgeCount = lines.filter((l) => l !== null).length;
 
   const result: Point[] = [...corners];
   for (let i = 0; i < 4; i++) {
@@ -480,11 +485,45 @@ function refineCorners(
     const intersection = intersectLines(prevLine, currLine);
     if (!intersection) continue;
     const displacement = Math.hypot(intersection.x - corners[i].x, intersection.y - corners[i].y);
-    if (displacement > MAX_REFINE_DISPLACEMENT) continue; // şüpheli, orijinali koru
+    if (displacement > maxDisplacement) continue; // şüpheli, orijinali koru
     result[i] = intersection;
   }
 
-  return result as [Point, Point, Point, Point];
+  return { corners: result as [Point, Point, Point, Point], refinedEdgeCount };
+}
+
+/**
+ * TAKİP MODU: Native uygulamaların yaptığı gibi — her karede sıfırdan
+ * tüm görüntüyü taramak yerine, önceki karede bulunan köşelerin
+ * ETRAFINDA hafif bir kenar-oturtma güncellemesi yapar. Aday arama /
+ * bağlı bileşen / convex hull YOK — sadece 4 kenarın yakın çevresinde
+ * gerçek geçişi arıyoruz. Bu hem daha öngörülebilir maliyetli (sahne
+ * karmaşıklığından bağımsız, sabit iş yükü) hem de kare-kareye
+ * "zıplama" olmadan çok daha akıcı bir overlay veriyor.
+ *
+ * Belge önemli ölçüde hareket ettiyse / kaybolduysa (yetersiz kenar
+ * güncellenebildiyse) null döner — çağıran taraf tam taramaya
+ * (mode="live") geri dönmeli.
+ */
+function trackFromPrevious(
+  imageData: ImageData,
+  previousCorners: [Point, Point, Point, Point]
+): DetectResult {
+  const { width: w, height: h } = imageData;
+  const { score, hist } = buildPaperScoreAndHistogram(imageData);
+  const n = w * h;
+  const otsuT = otsuThreshold(hist, n);
+  const threshold = Math.max(90, Math.min(235, otsuT));
+
+  const { corners, refinedEdgeCount } = refineCorners(score, w, h, previousCorners, threshold, MAX_TRACK_DISPLACEMENT);
+
+  // En az 3 kenar güncellenebilmiş olmalı (4'ü de nadiren gerekli —
+  // belgenin bir kenarı kadraj dışına taşabilir), yoksa izleme kaybedildi say.
+  if (refinedEdgeCount < 3) {
+    return { corners: null, debug: `İzleme kaybedildi (${refinedEdgeCount}/4 kenar güncellenebildi) — tam taramaya dönülüyor.` };
+  }
+
+  return { corners, debug: `Takip: ${refinedEdgeCount}/4 kenar güncellendi.` };
 }
 
 
@@ -558,10 +597,11 @@ function detect(imageData: ImageData, mode: "live" | "capture", expectedAspect: 
 
   const ordered = orderCorners(bestCandidate.rect.corners);
 
-  // Kenar oturtma sadece "capture" modunda — canlı önizlemede her karede
-  // çalıştırmak gereksiz maliyet (zaten hızlı, kaba tahmin yeterli).
-  // Çekim sonrası tek seferlik burada zaman bütçemiz bol.
-  const finalCorners = mode === "capture" ? refineCorners(score, w, h, ordered, threshold) : ordered;
+  // Kenar oturtma sadece "capture" modunda — canlı önizlemede tam
+  // taramada her karede çalıştırmak gereksiz maliyet. Çekim sonrası tek
+  // seferlik burada zaman bütçemiz bol.
+  const finalCorners =
+    mode === "capture" ? refineCorners(score, w, h, ordered, threshold, MAX_REFINE_DISPLACEMENT).corners : ordered;
 
   const areaRatio = bestCandidate.rect.area / n;
   const actualAspect = bestCandidate.rect.width / bestCandidate.rect.height;
@@ -575,9 +615,14 @@ function detect(imageData: ImageData, mode: "live" | "capture", expectedAspect: 
 }
 
 self.onmessage = (e: MessageEvent<RequestMsg>) => {
-  const { id, imageData, mode, expectedAspect } = e.data;
+  const { id, imageData, mode, expectedAspect, previousCorners } = e.data;
   try {
-    const result = detect(imageData, mode ?? "capture", expectedAspect);
+    let result: DetectResult;
+    if (mode === "track" && previousCorners) {
+      result = trackFromPrevious(imageData, previousCorners);
+    } else {
+      result = detect(imageData, mode === "track" ? "live" : mode ?? "capture", expectedAspect);
+    }
     (self as unknown as Worker).postMessage({ id, ...result });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
