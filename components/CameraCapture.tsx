@@ -114,50 +114,6 @@ export default function CameraCapture({
         </button>
       )}
 
-      {ready && (
-        <div
-          aria-hidden
-          style={
-            {
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              // guideAspect = genişlik / yükseklik. Önce genişliği viewport'a
-              // göre sınırla, sonra yüksekliği oradan hesapla ki taşma olmasın.
-              "--guide-w": guideAspect >= 1 ? "min(88vw, 88vh)" : "min(84vw, 63vh)",
-              width: "var(--guide-w)",
-              height: `calc(var(--guide-w) / ${guideAspect})`,
-              transform: "translate(-50%, -50%)",
-              border: "1.5px solid var(--scan)",
-              borderRadius: 10,
-              overflow: "hidden",
-              boxShadow: "0 0 0 999px rgba(0,0,0,0.35)",
-            } as React.CSSProperties
-          }
-        >
-          {[
-            { top: -1, left: -1 },
-            { top: -1, right: -1 },
-            { bottom: -1, left: -1 },
-            { bottom: -1, right: -1 },
-          ].map((pos, i) => (
-            <div
-              key={i}
-              style={{
-                position: "absolute",
-                width: 18,
-                height: 18,
-                borderColor: "var(--scan)",
-                borderStyle: "solid",
-                borderWidth: 0,
-                ...(pos.top !== undefined ? { top: pos.top, borderTopWidth: 3 } : { bottom: pos.bottom, borderBottomWidth: 3 }),
-                ...(pos.left !== undefined ? { left: pos.left, borderLeftWidth: 3 } : { right: pos.right, borderRightWidth: 3 }),
-              }}
-            />
-          ))}
-        </div>
-      )}
-
       <div
         className="eyebrow"
         style={{
