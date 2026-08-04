@@ -143,7 +143,7 @@ function DocumentView() {
       // Son onay: yüklendi olarak işaretle ve tüm belgelerin
       // listelendiği kütüphaneye yönlendir.
       await markDocumentUploaded(doc.id, "manual");
-      router.push("/");
+      router.push("/belgeler");
     }
   }
 
@@ -180,7 +180,7 @@ function DocumentView() {
 
   return (
     <main style={{ padding: "calc(20px + var(--safe-top)) 20px 24px" }}>
-      <button onClick={() => router.push("/")} className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginBottom: 14 }}>
+      <button onClick={() => router.push("/belgeler")} className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginBottom: 14 }}>
         ← BELGELER
       </button>
 

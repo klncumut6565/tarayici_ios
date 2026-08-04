@@ -78,7 +78,6 @@ a:focus-visible,
   max-width: 560px;
   margin: 0 auto;
   min-height: 100dvh;
-  padding-bottom: calc(72px + var(--safe-bottom));
   position: relative;
 }
 
