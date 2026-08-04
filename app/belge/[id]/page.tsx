@@ -15,7 +15,7 @@ import {
 } from "@/lib/db";
 import { DOC_TYPES } from "@/lib/types";
 import type { ScanDocument, ScanPage } from "@/lib/types";
-import { pagesToPDF, downloadBlob, sharePDF } from "@/lib/pdf";
+import { pagesToPDF, downloadBlob, sharePDF, filenameForDoc } from "@/lib/pdf";
 import { blobToImage, canvasToBlob, rotateCanvas90 } from "@/lib/imageProcessing";
 import {
   readIntegrationOptions,
@@ -104,7 +104,7 @@ function DocumentView() {
   }
 
   function filenameFor(d: ScanDocument) {
-    return `${d.title.replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || "belge"}.pdf`;
+    return filenameForDoc(d.title);
   }
 
   async function handleShareOrDownload() {

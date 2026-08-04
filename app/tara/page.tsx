@@ -37,6 +37,16 @@ function TaraFlow() {
   // fiziksel boyut: 85,60mm x 53,98mm) oranları lib/documentSizes.ts'ten.
   const expectedAspect = isKimlik ? ID_CARD_ASPECT : A4_ASPECT;
 
+  // Kimlik modu tam olarak 2 aşamalı: önce ön yüz, sonra arka yüz.
+  // pageCount buradan türetilir — kullanıcı ayrıca "kaç sayfa" diye
+  // düşünmek zorunda kalmaz, sadece "ön" ve "arka" görür.
+  const kimlikStage: "on" | "arka" | "tamam" = pageCount === 0 ? "on" : pageCount === 1 ? "arka" : "tamam";
+  const guideLabel = isKimlik
+    ? kimlikStage === "on"
+      ? "1/2 — KİMLİĞİN ÖN YÜZÜNÜ ÇERÇEVEYE YERLEŞTİR"
+      : "2/2 — KİMLİĞİN ARKA YÜZÜNÜ ÇERÇEVEYE YERLEŞTİR"
+    : "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR";
+
   // Ana sayfadan "Galeri" veya "Dosyalardan Yükle" ile gelindiyse, bekleyen
   // görüntüyü doğrudan kırpma adımına aktar; kamera adımını atla.
   useEffect(() => {
@@ -83,10 +93,19 @@ function TaraFlow() {
       }
       const blob = await canvasToBlob(canvas);
       await addPage(docIdRef.current, blob, { filter, brightness, contrast });
-      setPageCount((c) => c + 1);
+      const newCount = pageCount + 1;
+      setPageCount(newCount);
       setCaptured(null);
       setWarped(null);
-      setStep("kamera");
+
+      // Kimlik modunda tam 2 sayfa (ön+arka) yeterli — arka yüz
+      // kaydedilir kaydedilmez otomatik tamamla, kullanıcı ayrıca
+      // BİTİR'e basmak zorunda kalmasın.
+      if (isKimlik && newCount >= 2) {
+        finish();
+      } else {
+        setStep("kamera");
+      }
     } finally {
       setSaving(false);
     }
@@ -111,9 +130,42 @@ function TaraFlow() {
             onCapture={handleCapture}
             onCancel={cancelToStart}
             guideAspect={expectedAspect}
-            guideLabel={isKimlik ? "KİMLİĞİ ÇERÇEVEYE YERLEŞTİR (ÖN/ARKA AYRI ÇEK)" : "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR"}
+            guideLabel={guideLabel}
           />
-          {pageCount > 0 && (
+
+          {isKimlik && (
+            <div
+              style={{
+                position: "fixed",
+                top: "calc(52px + var(--safe-top))",
+                left: 0,
+                right: 0,
+                display: "flex",
+                justifyContent: "center",
+                zIndex: 6,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                className="mono"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  background: "rgba(19,22,25,0.85)",
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  border: "1px solid var(--line)",
+                }}
+              >
+                <StepDot active={kimlikStage === "on"} done={pageCount >= 1} label="ÖN YÜZ" />
+                <div style={{ width: 16, height: 1, background: "var(--line)" }} />
+                <StepDot active={kimlikStage === "arka"} done={pageCount >= 2} label="ARKA YÜZ" />
+              </div>
+            </div>
+          )}
+
+          {!isKimlik && pageCount > 0 && (
             <button
               onClick={finish}
               className="mono"
@@ -165,4 +217,39 @@ function TaraFlow() {
 
 function dist(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function StepDot({ active, done, label }: { active: boolean; done: boolean; label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span
+        style={{
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10,
+          fontWeight: 700,
+          flexShrink: 0,
+          background: done ? "var(--ok)" : active ? "var(--scan)" : "transparent",
+          color: done || active ? "#0a0c0e" : "var(--ink-dim)",
+          border: done || active ? "none" : "1px solid var(--line)",
+        }}
+      >
+        {done ? "✓" : ""}
+      </span>
+      <span
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.04em",
+          color: active ? "var(--scan)" : done ? "var(--ok)" : "var(--ink-dim)",
+          fontWeight: active ? 700 : 500,
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
 }

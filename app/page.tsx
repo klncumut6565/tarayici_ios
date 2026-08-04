@@ -2,18 +2,39 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { listDocuments, deleteDocument } from "@/lib/db";
+import { listDocuments, deleteDocument, getPagesForDoc, renameDocument } from "@/lib/db";
 import { setPendingImport } from "@/lib/pendingImport";
+import { pagesToPDF, downloadBlob, sharePDF, filenameForDoc } from "@/lib/pdf";
 import AddMenu from "@/components/AddMenu";
+import DocActionSheet from "@/components/DocActionSheet";
 import type { ScanDocument } from "@/lib/types";
 
 export default function HomePage() {
   const [docs, setDocs] = useState<ScanDocument[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [menuOpen, setMenuOpen] = useState(false);
+  const [actionSheetDoc, setActionSheetDoc] = useState<ScanDocument | null>(null);
   const router = useRouter();
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleSaveDoc(doc: ScanDocument) {
+    const pages = await getPagesForDoc(doc.id);
+    const blob = await pagesToPDF(pages, doc.title);
+    downloadBlob(blob, filenameForDoc(doc.title));
+  }
+
+  async function handleShareDoc(doc: ScanDocument) {
+    const pages = await getPagesForDoc(doc.id);
+    const blob = await pagesToPDF(pages, doc.title);
+    const shared = await sharePDF(blob, filenameForDoc(doc.title));
+    if (!shared) downloadBlob(blob, filenameForDoc(doc.title));
+  }
+
+  async function handleRenameDoc(doc: ScanDocument, newTitle: string) {
+    await renameDocument(doc.id, newTitle);
+    setDocs((prev) => prev?.map((d) => (d.id === doc.id ? { ...d, title: newTitle } : d)) ?? null);
+  }
 
   useEffect(() => {
     listDocuments().then((d) => {
@@ -252,7 +273,18 @@ export default function HomePage() {
                 PDF
               </div>
             </div>
-            <div style={{ marginTop: 6, fontSize: 13 }}>{doc.title}</div>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setActionSheetDoc(doc);
+              }}
+              style={{ marginTop: 6, fontSize: 13, textAlign: "left", width: "100%" }}
+            >
+              <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {doc.title}
+              </span>
+            </button>
             <div className="eyebrow" style={{ fontSize: 10 }}>
               {new Date(doc.updatedAt).toLocaleDateString("tr-TR")}
             </div>
@@ -283,6 +315,16 @@ export default function HomePage() {
         onFiles={openFiles}
         onKimlik={openKimlik}
       />
+
+      {actionSheetDoc && (
+        <DocActionSheet
+          doc={actionSheetDoc}
+          onClose={() => setActionSheetDoc(null)}
+          onSave={handleSaveDoc}
+          onShare={handleShareDoc}
+          onRename={handleRenameDoc}
+        />
+      )}
     </main>
   );
 }

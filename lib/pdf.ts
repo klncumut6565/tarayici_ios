@@ -60,6 +60,10 @@ export async function pagesToPDF(pages: ScanPage[], title = "belge"): Promise<Bl
   return doc!.output("blob");
 }
 
+export function filenameForDoc(title: string): string {
+  return `${title.replace(/[^\p{L}\p{N}\s-]/gu, "").trim() || "belge"}.pdf`;
+}
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
