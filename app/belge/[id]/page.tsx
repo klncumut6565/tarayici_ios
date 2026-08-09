@@ -89,8 +89,8 @@ function DocumentView() {
       const result = await deliverDocument(doc, integration);
       if (result.delivered) {
         if (integration.returnTo) {
-          window.location.href = integration.returnTo;
-          return; // sayfa zaten ayrılıyor, autoDelivering'i kapatmaya gerek yok
+          returnToTMGD(integration.returnTo);
+          return; // sayfa zaten ayrılıyor (ya da sekme kapanıyor), autoDelivering'i kapatmaya gerek yok
         }
         await reload();
       } else {
@@ -151,6 +151,32 @@ function DocumentView() {
     if (!shared) downloadBlob(previewBlob, filename);
   }
 
+  /**
+   * Başarılı gönderim sonrası TMGD'ye dönüş.
+   *
+   * TMGD, bu sekmeyi `window.open("", "_blank")` ile (noopener OLMADAN)
+   * açtığı için `window.opener` çoğu durumda TMGD sekmesine bir referans
+   * tutar. Bunu kullanarak ASIL TMGD sekmesini returnTo'ya yönlendirip bu
+   * tarayıcı sekmesini kapatmak, bu sekmeyi returnTo'ya (başka bir origin)
+   * yönlendirip açık bırakmaktan çok daha iyi bir deneyim: kullanıcı iki
+   * sekme arasında kalmadan, kaldığı TMGD sekmesine geri döner.
+   * `window.opener` erişilemezse (popup engelleyici, farklı tarayıcı
+   * politikası, ya da bağlantı elle açıldıysa) bu sekmeyi doğrudan
+   * yönlendirmeye düşülür — eski davranış, her zaman çalışır.
+   */
+  function returnToTMGD(returnTo: string) {
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.location.href = returnTo;
+        window.close();
+        return;
+      }
+    } catch {
+      // opener'a erişilemedi (cross-origin kısıtlaması olabilir) — düş
+    }
+    window.location.href = returnTo;
+  }
+
   async function handleIntegrationSend() {
     if (!doc) return;
     setSendingIntegration(true);
@@ -161,7 +187,7 @@ function DocumentView() {
         setPreviewBlob(null);
         await reload();
         if (integration.returnTo) {
-          window.location.href = integration.returnTo;
+          returnToTMGD(integration.returnTo);
         }
       } else {
         setIntegrationError(result.error ?? "Bilinmeyen hata");
@@ -429,6 +455,12 @@ function DocumentView() {
           {uploaded
             ? "Bu belge TMGD sistemine gönderildi."
             : "Dış sistem bağlantısı algılandı — bu sayfaya gelir gelmez otomatik gönderim denendi."}
+          {!uploaded && (
+            <div style={{ opacity: 0.6, marginTop: 4 }}>
+              returnTo: {integration.returnTo ? "✓ var" : "✗ yok"} · opener:{" "}
+              {typeof window !== "undefined" && window.opener ? "✓ var" : "✗ yok"}
+            </div>
+          )}
         </div>
       )}
 
