@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   getDocument,
@@ -49,6 +49,8 @@ function DocumentView() {
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [autoDelivering, setAutoDelivering] = useState(false);
+  const autoSendTried = useRef(false);
 
   async function reload() {
     const [d, p] = await Promise.all([getDocument(id), getPagesForDoc(id)]);
@@ -63,6 +65,41 @@ function DocumentView() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Bu ekrana TMGD (veya başka bir dış sistem) tarafından yönlendirilmişsek
+  // ("Bitir"e basılır basılmaz), kullanıcıdan "PDF ÖNİZLE" → "GÖNDER" gibi
+  // ekstra adımlar beklemeden PDF'i otomatik oluşturup gönder. Sadece
+  // henüz yüklenmemiş, en az bir sayfası olan bir belgede ve bu ekrana ilk
+  // gelişte (autoSendTried) bir kez dener; başarısız olursa normal elle
+  // gönderme akışına (PDF ÖNİZLE) sorunsuzca düşer.
+  useEffect(() => {
+    if (!integrationActive || !doc || pages.length === 0) return;
+    if (doc.uploadStatus === "uploaded") return;
+    if (autoSendTried.current) return;
+    autoSendTried.current = true;
+    autoDeliver();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, pages.length, integrationActive]);
+
+  async function autoDeliver() {
+    if (!doc) return;
+    setAutoDelivering(true);
+    setIntegrationError(null);
+    try {
+      const result = await deliverDocument(doc, integration);
+      if (result.delivered) {
+        if (integration.returnTo) {
+          window.location.href = integration.returnTo;
+          return; // sayfa zaten ayrılıyor, autoDelivering'i kapatmaya gerek yok
+        }
+        await reload();
+      } else {
+        setIntegrationError(result.error ?? "Bilinmeyen hata");
+      }
+    } finally {
+      setAutoDelivering(false);
+    }
+  }
 
   async function move(index: number, dir: -1 | 1) {
     const next = [...pages];
@@ -178,11 +215,81 @@ function DocumentView() {
 
   const uploaded = doc.uploadStatus === "uploaded";
 
+  if (autoDelivering) {
+    return (
+      <main
+        style={{
+          minHeight: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 14,
+          padding: 20,
+          textAlign: "center",
+        }}
+      >
+        <div
+          className="mono"
+          style={{
+            width: 34,
+            height: 34,
+            border: "3px solid var(--line)",
+            borderTopColor: "var(--scan)",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <div className="mono" style={{ fontWeight: 700, fontSize: 14 }}>
+          TMGD'YE GÖNDERİLİYOR…
+        </div>
+        <div className="eyebrow" style={{ fontSize: 10 }}>{doc.title} · {pages.length} SAYFA</div>
+        <style jsx>{`
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}</style>
+      </main>
+    );
+  }
+
   return (
     <main style={{ padding: "calc(20px + var(--safe-top)) 20px 24px" }}>
       <button onClick={() => router.push("/belgeler")} className="mono" style={{ color: "var(--ink-dim)", fontSize: 12, marginBottom: 14 }}>
         ← BELGELER
       </button>
+
+      {integrationActive && integrationError && (
+        <div
+          className="mono"
+          style={{
+            fontSize: 11,
+            color: "var(--scan)",
+            background: "rgba(255,90,54,0.1)",
+            border: "1px solid var(--scan)",
+            borderRadius: "var(--radius-sm)",
+            padding: "10px 12px",
+            marginBottom: 14,
+          }}
+        >
+          Otomatik gönderim başarısız oldu: {integrationError}
+          <div style={{ marginTop: 6, opacity: 0.8 }}>
+            Aşağıdaki "PDF ÖNİZLE" ile elle deneyebilirsin, ya da{" "}
+            <button
+              onClick={() => {
+                autoSendTried.current = false;
+                autoDeliver();
+              }}
+              style={{ textDecoration: "underline", fontWeight: 700 }}
+            >
+              tekrar dene
+            </button>
+            .
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -307,7 +414,7 @@ function DocumentView() {
         </button>
       </div>
 
-      {integrationActive && (
+      {integrationActive && !integrationError && (
         <div
           className="mono"
           style={{
@@ -319,7 +426,9 @@ function DocumentView() {
             marginBottom: 12,
           }}
         >
-          {isEmbedded() ? "Bu ekran bir üst sistem içine gömülü — PDF hazır olunca otomatik iletilecek." : "Dış sistem bağlantısı algılandı — PDF, önizleme ekranından gönderilebilir."}
+          {uploaded
+            ? "Bu belge TMGD sistemine gönderildi."
+            : "Dış sistem bağlantısı algılandı — bu sayfaya gelir gelmez otomatik gönderim denendi."}
         </div>
       )}
 
