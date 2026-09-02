@@ -55,7 +55,7 @@ export async function detectDocumentCorners(
 
   const effectiveMode: DetectionMode = mode === "track" && !previousCorners ? "live" : mode;
 
-  const maxDim = effectiveMode === "capture" ? 900 : 360;
+  const maxDim = effectiveMode === "capture" ? 1440 : 480;
   const scale = Math.min(1, maxDim / Math.max(source.width, source.height));
   const work = document.createElement("canvas");
   work.width = Math.max(1, Math.round(source.width * scale));

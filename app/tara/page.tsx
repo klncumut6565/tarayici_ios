@@ -70,7 +70,9 @@ function TaraFlow() {
 
   function handleCropConfirm(corners: [Point, Point, Point, Point]) {
     if (!captured) return;
-    const outW = 1200;
+    // Sabit 1200px yerine, yakalanan görüntünün gerçek genişliğini kullan
+    // (üst sınır 2000px — aşırı büyük warp canvas'larından kaçınmak için).
+    const outW = Math.min(captured.width, 2000);
     const outH = Math.round(
       (outW *
         (dist(corners[3], corners[0]) + dist(corners[2], corners[1]))) /
