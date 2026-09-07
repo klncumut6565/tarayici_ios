@@ -136,7 +136,7 @@ export async function addPage(
     docId,
     order: existing.length,
     imageData,
-    filter: extra.filter ?? "orijinal",
+    filter: extra.filter ?? "belge",
     brightness: extra.brightness ?? 0,
     contrast: extra.contrast ?? 0,
     createdAt: Date.now(),

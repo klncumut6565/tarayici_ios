@@ -48,12 +48,33 @@ export default function CameraCapture({
     async function start() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 2560 },
+            // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
+            // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
+            // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
+            advanced: [{ whiteBalanceMode: "continuous", exposureMode: "continuous", focusMode: "continuous" }],
+          },
           audio: false,
         });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
+        }
+        // Akış başladıktan sonra da aynı ayarları track üzerinde zorlamayı dene
+        // (bazı iOS sürümleri bunu yalnızca applyConstraints ile kabul ediyor).
+        const [track] = stream.getVideoTracks();
+        if (track) {
+          try {
+            await track.applyConstraints({
+              // @ts-expect-error - bkz. yukarıdaki not
+              advanced: [{ whiteBalanceMode: "continuous", exposureMode: "continuous" }],
+            });
+          } catch {
+            // Desteklenmiyorsa sessizce yoksay — normal capture akışı bozulmaz.
+          }
         }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;

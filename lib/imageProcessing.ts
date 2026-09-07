@@ -82,6 +82,45 @@ export function warpToRectangle(
   return canvas;
 }
 
+/**
+ * Kanal başına histogram üzerinden düşük/yüksek yüzdelik dilim (percentile)
+ * değerlerini bulur. Bu, "beyaz nokta" (kağıdın en parlak tonu) ve "siyah
+ * nokta"nın (mürekkep/gölgenin en koyu tonu) otomatik tespiti içindir —
+ * gerçek tarayıcı uygulamalarının kağıdı beyaza çekmek için kullandığı
+ * yöntemin aynısı (auto-levels / white point correction).
+ */
+function computeChannelLevels(data: Uint8ClampedArray, lowPct = 0.02, highPct = 0.98) {
+  const histR = new Array(256).fill(0);
+  const histG = new Array(256).fill(0);
+  const histB = new Array(256).fill(0);
+  const total = data.length / 4;
+
+  for (let i = 0; i < data.length; i += 4) {
+    histR[data[i]]++;
+    histG[data[i + 1]]++;
+    histB[data[i + 2]]++;
+  }
+
+  function percentile(hist: number[], pct: number) {
+    const target = total * pct;
+    let cum = 0;
+    for (let v = 0; v < 256; v++) {
+      cum += hist[v];
+      if (cum >= target) return v;
+    }
+    return 255;
+  }
+
+  return {
+    loR: percentile(histR, lowPct),
+    hiR: percentile(histR, highPct),
+    loG: percentile(histG, lowPct),
+    hiG: percentile(histG, highPct),
+    loB: percentile(histB, lowPct),
+    hiB: percentile(histB, highPct),
+  };
+}
+
 export function applyFilter(
   canvas: HTMLCanvasElement,
   filter: FilterType,
@@ -95,10 +134,34 @@ export function applyFilter(
 
   const contrastFactor = (259 * (contrast + 255)) / (255 * (259 - contrast));
 
+  // "Belge" filtresi: kanal başına otomatik seviye germe. Kağıdın en
+  // parlak tonunu 255'e (beyaz), mürekkebin en koyu tonunu ~0'a çeker.
+  // Aynı zamanda kanallar ayrı ayrı gerildiği için düşük ışıkta oluşan
+  // renk kaymasını (sarı/gri baskın görüntü) da düzeltir.
+  const MIN_RANGE = 25;
+  let levels: ReturnType<typeof computeChannelLevels> | null = null;
+  if (filter === "belge") {
+    levels = computeChannelLevels(data);
+  }
+
   for (let i = 0; i < data.length; i += 4) {
     let r = data[i];
     let g = data[i + 1];
     let b = data[i + 2];
+
+    if (levels) {
+      const hiR = Math.max(levels.hiR, levels.loR + MIN_RANGE);
+      const hiG = Math.max(levels.hiG, levels.loG + MIN_RANGE);
+      const hiB = Math.max(levels.hiB, levels.loB + MIN_RANGE);
+      r = ((r - levels.loR) / (hiR - levels.loR)) * 255;
+      g = ((g - levels.loG) / (hiG - levels.loG)) * 255;
+      b = ((b - levels.loB) / (hiB - levels.loB)) * 255;
+      // Hafif gamma kaldırması: orta tonları biraz daha aydınlatır, kağıt
+      // dokusundaki hafif gölgeleri de beyaza yaklaştırır.
+      r = 255 * Math.pow(clamp(r) / 255, 0.9);
+      g = 255 * Math.pow(clamp(g) / 255, 0.9);
+      b = 255 * Math.pow(clamp(b) / 255, 0.9);
+    }
 
     if (filter === "gri" || filter === "siyahbeyaz") {
       const gray = 0.299 * r + 0.587 * g + 0.114 * b;

@@ -1,4 +1,4 @@
-export type FilterType = "orijinal" | "gri" | "siyahbeyaz" | "canlı";
+export type FilterType = "belge" | "orijinal" | "gri" | "siyahbeyaz" | "canlı";
 
 export interface ScanPage {
   id: string;

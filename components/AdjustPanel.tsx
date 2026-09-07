@@ -12,6 +12,7 @@ interface Props {
 }
 
 const filters: { key: FilterType; label: string }[] = [
+  { key: "belge", label: "Belge" },
   { key: "orijinal", label: "Orijinal" },
   { key: "gri", label: "Gri" },
   { key: "siyahbeyaz", label: "S/B" },
@@ -19,7 +20,7 @@ const filters: { key: FilterType; label: string }[] = [
 ];
 
 export default function AdjustPanel({ source, onSave, onRetake, saving }: Props) {
-  const [filter, setFilter] = useState<FilterType>("orijinal");
+  const [filter, setFilter] = useState<FilterType>("belge");
   const [brightness, setBrightness] = useState(0);
   const [contrast, setContrast] = useState(0);
   const previewRef = useRef<HTMLCanvasElement>(null);
