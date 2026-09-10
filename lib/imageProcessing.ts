@@ -197,7 +197,7 @@ function clamp(v: number) {
   return Math.max(0, Math.min(255, v));
 }
 
-export function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob> {
+export function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.82): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("Canvas blob oluşturulamadı"))),

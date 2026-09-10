@@ -71,8 +71,10 @@ function TaraFlow() {
   function handleCropConfirm(corners: [Point, Point, Point, Point]) {
     if (!captured) return;
     // Sabit 1200px yerine, yakalanan görüntünün gerçek genişliğini kullan
-    // (üst sınır 2000px — aşırı büyük warp canvas'larından kaçınmak için).
-    const outW = Math.min(captured.width, 2000);
+    // (üst sınır 1600px — A4 metni için fazlasıyla yeterli çözünürlük,
+    // 2000px'e göre depolanan sayfa başına veriyi belirgin küçültüp iOS'ta
+    // "10+ sayfada kayıt hatası" sorununu önler).
+    const outW = Math.min(captured.width, 1600);
     const outH = Math.round(
       (outW *
         (dist(corners[3], corners[0]) + dist(corners[2], corners[1]))) /
@@ -108,6 +110,13 @@ function TaraFlow() {
       } else {
         setStep("kamera");
       }
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      const message =
+        name === "QuotaExceededError"
+          ? "Cihazda yer kalmadı. Bu sayfa kaydedilemedi — bitmiş belgeleri gönderip cihazdan silerek yer açabilirsin."
+          : "Sayfa kaydedilemedi. Tekrar dener misin?";
+      alert(message);
     } finally {
       setSaving(false);
     }
