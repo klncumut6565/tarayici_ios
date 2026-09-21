@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { detectDocumentCorners } from "@/lib/edgeDetection";
 import type { Point } from "@/lib/imageProcessing";
 import { roundedQuadPath, suggestedCornerRadius } from "@/lib/roundedQuadPath";
-import { getCameraPreset } from "@/lib/cameraSettings";
+import { getCameraPreset, CAMERA_PRESETS } from "@/lib/cameraSettings";
 
 interface Props {
   onCapture: (canvas: HTMLCanvasElement) => void;
@@ -88,6 +88,31 @@ export default function CameraCapture({
             });
           } catch {
             // Desteklenmiyorsa sessizce yoksay — normal capture akışı bozulmaz.
+          }
+
+          // "ideal" bir GARANTİ DEĞİL — bazı Chrome/Android kombinasyonları
+          // (özellikle Samsung/Xiaomi) bunu yok sayıp kareye yakın bir akış
+          // döndürebiliyor. Gerçekte ne geldiğini doğrula; kareyse "exact"
+          // ile sırayla birkaç dikey preset deneyerek zorla düzelt.
+          const settings = track.getSettings();
+          const gotRatio = (settings.width ?? 1) / (settings.height ?? 1);
+          const isNearSquare = gotRatio > 0.85 && gotRatio < 1.18;
+
+          if (isNearSquare) {
+            const fallbackOrder = [
+              { width: wantWidth, height: wantHeight },
+              ...CAMERA_PRESETS.filter((p) => p.id !== "auto").map((p) => ({ width: p.width, height: p.height })),
+            ];
+            for (const candidate of fallbackOrder) {
+              try {
+                await track.applyConstraints({ width: { exact: candidate.width }, height: { exact: candidate.height } });
+                const after = track.getSettings();
+                const afterRatio = (after.width ?? 1) / (after.height ?? 1);
+                if (!(afterRatio > 0.85 && afterRatio < 1.18)) break; // düzeldi, dur
+              } catch {
+                // Bu kombinasyon cihazda desteklenmiyor — sıradakini dene.
+              }
+            }
           }
         }
         if (videoRef.current) {
