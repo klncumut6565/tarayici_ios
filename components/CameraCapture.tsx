@@ -47,11 +47,18 @@ export default function CameraCapture({
 
     async function start() {
       try {
+        // Kamera akışını EKRANIN GERÇEK EN/BOY ORANINA göre iste. Sabit
+        // 1920x2560 (3:4 ≈ 0.75) isteğiyle telefon ekranı (~9:19.5 ≈ 0.46)
+        // arasındaki fark, "contain" ile üstte/altta çok büyük siyah
+        // boşluk bırakıyordu — görüntü ekranı doldurmuyordu. Ekran
+        // oranına yakın bir akış istemek bu boşluğu en aza indirir.
+        const screenAspect = window.innerWidth / window.innerHeight; // portrait'te < 1
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 2560 },
+            width: { ideal: 1080 },
+            height: { ideal: Math.round(1080 / screenAspect) },
+            aspectRatio: { ideal: screenAspect },
             // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
             // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
             // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
