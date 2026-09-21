@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setPendingImport } from "@/lib/pendingImport";
+import { enterFullscreen } from "@/lib/fullscreen";
 import AddMenu from "@/components/AddMenu";
 import Sidebar from "@/components/Sidebar";
 
@@ -14,6 +15,7 @@ export default function HomePage() {
   const filesInputRef = useRef<HTMLInputElement>(null);
 
   function openCamera() {
+    enterFullscreen(); // navigasyondan önce, senkron click zincirinde çağrılmalı
     setMenuOpen(false);
     router.push("/tara");
   }
@@ -29,6 +31,7 @@ export default function HomePage() {
   }
 
   function openKimlik() {
+    enterFullscreen();
     setMenuOpen(false);
     router.push("/tara?mode=kimlik");
   }

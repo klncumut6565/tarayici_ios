@@ -10,6 +10,7 @@ import { addPage, createDocument } from "@/lib/db";
 import { takePendingImport } from "@/lib/pendingImport";
 import { readIntegrationOptions, appendIntegrationParams } from "@/lib/scannerModule";
 import { A4_ASPECT, ID_CARD_ASPECT } from "@/lib/documentSizes";
+import { exitFullscreen } from "@/lib/fullscreen";
 import type { FilterType } from "@/lib/types";
 
 type Step = "kamera" | "kirp" | "ayarla";
@@ -122,12 +123,14 @@ function TaraFlow() {
   }
 
   function finish() {
+    exitFullscreen(); // tarama akışı tamamen bitti, tam ekrandan çık
     const integration = readIntegrationOptions(searchParams);
     const path = docIdRef.current ? `/belge/${docIdRef.current}` : "/";
     router.push(appendIntegrationParams(path, integration));
   }
 
   function cancelToStart() {
+    exitFullscreen();
     const path = docIdRef.current ? `/belge/${docIdRef.current}` : "/";
     router.push(path);
   }
