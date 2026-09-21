@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { detectDocumentCorners } from "@/lib/edgeDetection";
 import type { Point } from "@/lib/imageProcessing";
 import { roundedQuadPath, suggestedCornerRadius } from "@/lib/roundedQuadPath";
+import { getCameraPreset } from "@/lib/cameraSettings";
 
 interface Props {
   onCapture: (canvas: HTMLCanvasElement) => void;
@@ -29,6 +31,7 @@ export default function CameraCapture({
   guideLabel = "BELGEYİ ÇERÇEVE İÇİNE YERLEŞTİR",
   onCancel,
 }: Props) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -47,18 +50,22 @@ export default function CameraCapture({
 
     async function start() {
       try {
-        // Kamera akışını EKRANIN GERÇEK EN/BOY ORANINA göre iste. Sabit
-        // 1920x2560 (3:4 ≈ 0.75) isteğiyle telefon ekranı (~9:19.5 ≈ 0.46)
-        // arasındaki fark, "contain" ile üstte/altta çok büyük siyah
-        // boşluk bırakıyordu — görüntü ekranı doldurmuyordu. Ekran
-        // oranına yakın bir akış istemek bu boşluğu en aza indirir.
+        // Kamera akışını EKRANIN GERÇEK EN/BOY ORANINA göre iste — Chrome/
+        // Safari'nin kendi varsayılanı bazı cihazlarda kareye yakın/yatay
+        // gelebiliyor. Kullanıcı Ayarlar'dan manuel bir çözünürlük seçtiyse
+        // (preset.id !== "auto") o sabit değerler; seçmediyse ekran oranına
+        // göre hesaplanan değerler kullanılır.
+        const preset = getCameraPreset();
         const screenAspect = window.innerWidth / window.innerHeight; // portrait'te < 1
+        const wantWidth = preset.id === "auto" ? 1080 : preset.width;
+        const wantHeight = preset.id === "auto" ? Math.round(1080 / screenAspect) : preset.height;
+        const wantAspect = preset.id === "auto" ? screenAspect : preset.width / preset.height;
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1080 },
-            height: { ideal: Math.round(1080 / screenAspect) },
-            aspectRatio: { ideal: screenAspect },
+            width: { ideal: wantWidth },
+            height: { ideal: wantHeight },
+            aspectRatio: { ideal: wantAspect },
             // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
             // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
             // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
@@ -286,6 +293,35 @@ export default function CameraCapture({
           ×
         </button>
       )}
+
+      <button
+        onClick={() => router.push("/ayarlar")}
+        aria-label="Kamera ayarları"
+        style={{
+          position: "absolute",
+          top: "calc(16px + var(--safe-top))",
+          right: 16,
+          width: 36,
+          height: 36,
+          borderRadius: "50%",
+          background: "rgba(0,0,0,0.5)",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 6,
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" stroke="#fff" strokeWidth={1.6} />
+          <path
+            d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M17.66 6.34l-1.41 1.41M7.75 16.25l-1.41 1.41M17.66 17.66l-1.41-1.41M7.75 7.75 6.34 6.34"
+            stroke="#fff"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
 
       <div
         className="eyebrow"

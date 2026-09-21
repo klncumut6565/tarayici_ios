@@ -70,6 +70,12 @@ export default function Sidebar({ open, onClose }: Props) {
           active={pathname === "/"}
           onClick={() => go("/")}
         />
+        <SidebarItem
+          icon={<GearIcon active={pathname === "/ayarlar"} />}
+          label="Ayarlar"
+          active={pathname === "/ayarlar"}
+          onClick={() => go("/ayarlar")}
+        />
 
         <div style={{ flex: 1 }} />
 
@@ -154,6 +160,21 @@ function HomeIcon({ active }: { active: boolean }) {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
       <path d="M4 11.5 12 4l8 7.5" stroke={c} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
       <path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" stroke={c} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function GearIcon({ active }: { active: boolean }) {
+  const c = active ? "var(--scan)" : "var(--ink-dim)";
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="3" stroke={c} strokeWidth={1.6} />
+      <path
+        d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M17.66 6.34l-1.41 1.41M7.75 16.25l-1.41 1.41M17.66 17.66l-1.41-1.41M7.75 7.75 6.34 6.34"
+        stroke={c}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
