@@ -74,6 +74,83 @@ function buildPaperScoreAndHistogram(imageData: ImageData): { score: Float32Arra
   return { score, hist };
 }
 
+/**
+ * A4 gibi FİZİKSEL OLARAK BÜYÜK bir belgede, odanın ışığı sayfanın bir
+ * ucundan diğerine eşit dağılmaz (pencereye/lambaya yakın uç parlak,
+ * uzak uç sönük). Tek bir GLOBAL eşik (Otsu) bu durumda kağıdı TEK bir
+ * bağlı bileşen olarak yakalayamaz — sayfa ikiye/üçe bölünür ve en
+ * düzgün aydınlatılmış KÜÇÜK, KAREYE YAKIN bir alt-bölge kazanır. Bu,
+ * "A4 kenarları kare gibi algılanıyor" şikayetinin kök nedeni — küçük
+ * kimlik kartlarında sorun çıkmamasının sebebi de kartın kapladığı alan
+ * küçük olduğu için ışığın o alanda çok daha düzgün olması.
+ *
+ * Çözüm: eşiklemeden ÖNCE kaba/düşük çözünürlüklü bir "yerel aydınlatma"
+ * haritası çıkarıp skoru bu haritaya göre düzleştiriyoruz (klasik
+ * "illumination flattening" — belge tarayıcılarda standart bir teknik).
+ * Grid küçük tutulduğu için (12x12) gerçek belge kenarlarını değil,
+ * sadece geniş ölçekli ışık gradyanını yakalar.
+ */
+function flattenIllumination(score: Float32Array, w: number, h: number): Float32Array {
+  const GRID = 12;
+  const gx = Math.max(2, Math.min(GRID, w));
+  const gy = Math.max(2, Math.min(GRID, h));
+  const blockW = w / gx;
+  const blockH = h / gy;
+  const grid = new Float32Array(gx * gy);
+
+  for (let by = 0; by < gy; by++) {
+    const y0 = Math.floor(by * blockH);
+    const y1 = Math.max(y0 + 1, Math.floor((by + 1) * blockH));
+    for (let bx = 0; bx < gx; bx++) {
+      const x0 = Math.floor(bx * blockW);
+      const x1 = Math.max(x0 + 1, Math.floor((bx + 1) * blockW));
+      let sum = 0;
+      let count = 0;
+      for (let y = y0; y < y1; y++) {
+        const base = y * w;
+        for (let x = x0; x < x1; x++) {
+          sum += score[base + x];
+          count++;
+        }
+      }
+      grid[by * gx + bx] = count > 0 ? sum / count : 128;
+    }
+  }
+
+  let globalSum = 0;
+  for (let i = 0; i < grid.length; i++) globalSum += grid[i];
+  const globalMean = globalSum / grid.length;
+
+  const flattened = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const fy = Math.min(gy - 1, Math.max(0, (y + 0.5) / blockH - 0.5));
+    const gy0 = Math.floor(fy);
+    const gy1 = Math.min(gy - 1, gy0 + 1);
+    const fyFrac = fy - gy0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.min(gx - 1, Math.max(0, (x + 0.5) / blockW - 0.5));
+      const gx0 = Math.floor(fx);
+      const gx1 = Math.min(gx - 1, gx0 + 1);
+      const fxFrac = fx - gx0;
+
+      const v00 = grid[gy0 * gx + gx0];
+      const v10 = grid[gy0 * gx + gx1];
+      const v01 = grid[gy1 * gx + gx0];
+      const v11 = grid[gy1 * gx + gx1];
+      const local =
+        v00 * (1 - fxFrac) * (1 - fyFrac) +
+        v10 * fxFrac * (1 - fyFrac) +
+        v01 * (1 - fxFrac) * fyFrac +
+        v11 * fxFrac * fyFrac;
+
+      const idx = y * w + x;
+      flattened[idx] = Math.max(0, Math.min(255, score[idx] - local + globalMean));
+    }
+  }
+
+  return flattened;
+}
+
 /** Klasik Otsu algoritması: histogramdan iki sınıfı en iyi ayıran eşiği bulur. */
 function otsuThreshold(hist: Uint32Array, total: number): number {
   let sumAll = 0;
@@ -532,7 +609,12 @@ function detect(imageData: ImageData, mode: "live" | "capture", expectedAspect: 
   const { width: w, height: h } = imageData;
   const n = w * h;
 
-  const { score, hist } = buildPaperScoreAndHistogram(imageData);
+  const { score: rawScore } = buildPaperScoreAndHistogram(imageData);
+  // Işık gradyanını düzleştirilmiş skor üzerinden eşikle/segmentle —
+  // büyük belgelerde (A4) tek bileşen olarak bütün sayfayı yakalamak için.
+  const score = flattenIllumination(rawScore, w, h);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < n; i++) hist[Math.round(score[i])]++;
   const otsuT = otsuThreshold(hist, n);
   // Otsu bazen çok düşük bir eşik bulabilir (görüntüde gerçek iki-modlu
   // dağılım yoksa); mantıklı bir alt/üst sınırla koru.
