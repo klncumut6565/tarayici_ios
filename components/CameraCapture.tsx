@@ -96,9 +96,12 @@ export default function CameraCapture({
           // ile sırayla birkaç dikey preset deneyerek zorla düzelt.
           const settings = track.getSettings();
           const gotRatio = (settings.width ?? 1) / (settings.height ?? 1);
-          const isNearSquare = gotRatio > 0.85 && gotRatio < 1.18;
+          // Uygulama her zaman DİKEY bir akış istiyor (A4/kimlik taraması).
+          // Sadece "kareye yakın" değil, YATAY (gotRatio > 0.95) gelen her
+          // akış da yanlış — üstte/altta büyük siyah bant bırakıyor.
+          const isWrongOrientation = gotRatio > 0.95;
 
-          if (isNearSquare) {
+          if (isWrongOrientation) {
             const fallbackOrder = [
               { width: wantWidth, height: wantHeight },
               ...CAMERA_PRESETS.filter((p) => p.id !== "auto").map((p) => ({ width: p.width, height: p.height })),
@@ -108,7 +111,7 @@ export default function CameraCapture({
                 await track.applyConstraints({ width: { exact: candidate.width }, height: { exact: candidate.height } });
                 const after = track.getSettings();
                 const afterRatio = (after.width ?? 1) / (after.height ?? 1);
-                if (!(afterRatio > 0.85 && afterRatio < 1.18)) break; // düzeldi, dur
+                if (afterRatio <= 0.95) break; // düzeldi (dikey geldi), dur
               } catch {
                 // Bu kombinasyon cihazda desteklenmiyor — sıradakini dene.
               }
@@ -199,18 +202,23 @@ export default function CameraCapture({
         // Örnekleme uzayı -> video intrinsic piksel uzayı
         const toVideoSpace = (p: Point): Point => ({ x: (p.x / sw) * vw, y: (p.y / sh) * vh });
 
-        // object-fit: contain haritalaması: video intrinsic -> ekran (container CSS px).
-        // ÖNEMLİ: "cover" değil "contain" kullanıyoruz — kameranın gördüğü
-        // hiçbir piksel kırpılmıyor/zoom edilmiyor, gerekirse üstte/altta
-        // veya yanlarda siyah boşluk (letterbox) kalır.
+        // object-fit: cover haritalaması: video intrinsic -> ekran (container CSS px).
+        // ÖNEMLİ: "contain" DEĞİL "cover" kullanıyoruz — bazı cihazlarda
+        // kamera akışı yatay gelmeye devam edebiliyor (exact zorlaması
+        // tutmuyorsa); "contain" bu durumda üstte/altta büyük siyah bant
+        // bırakıp ekranı doldurmuyordu. "cover" ekranı HER ZAMAN doldurur,
+        // fazlalık kenarlardan simetrik kırpılır (gerçek kamera
+        // uygulamalarının hepsinin yaptığı gibi) — kaydedilen görüntü
+        // capture() içinde hâlâ TAM ÇÖZÜNÜRLÜKTE, kırpılmadan alınıyor,
+        // sadece canlı önizleme kırpıyor.
         const cw = container.clientWidth;
         const ch = container.clientHeight;
-        const containScale = Math.min(cw / vw, ch / vh);
-        const offsetX = (cw - vw * containScale) / 2;
-        const offsetY = (ch - vh * containScale) / 2;
+        const coverScale = Math.max(cw / vw, ch / vh);
+        const offsetX = (cw - vw * coverScale) / 2;
+        const offsetY = (ch - vh * coverScale) / 2;
         const toScreen = (p: Point): Point => ({
-          x: p.x * containScale + offsetX,
-          y: p.y * containScale + offsetY,
+          x: p.x * coverScale + offsetX,
+          y: p.y * coverScale + offsetY,
         });
 
         const screenQuad = corners.map((c) => toScreen(toVideoSpace(c))) as Quad;
@@ -271,7 +279,7 @@ export default function CameraCapture({
           ref={videoRef}
           playsInline
           muted
-          style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000" }}
+          style={{ width: "100%", height: "100%", objectFit: "cover", background: "#000" }}
         />
 
         {liveQuad && (

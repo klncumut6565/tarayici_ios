@@ -6,6 +6,7 @@ import { setPendingImport } from "@/lib/pendingImport";
 import { enterFullscreen } from "@/lib/fullscreen";
 import AddMenu from "@/components/AddMenu";
 import Sidebar from "@/components/Sidebar";
+import InstallPrompt from "@/components/InstallPrompt";
 
 export default function HomePage() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,6 +58,7 @@ export default function HomePage() {
         padding: "calc(20px + var(--safe-top)) 20px calc(24px + var(--safe-bottom))",
       }}
     >
+      <InstallPrompt />
       <button
         onClick={() => setSidebarOpen(true)}
         aria-label="Menü"
