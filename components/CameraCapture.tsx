@@ -49,6 +49,24 @@ export default function CameraCapture({
     let cancelled = false;
 
     async function start() {
+      // Kamera API'si hiç yoksa (Opera/Chrome/Firefox iOS gibi üçüncü
+      // parti tarayıcılar — Apple'ın WKWebView kısıtlaması yüzünden
+      // getUserMedia'yı desteklemeyebiliyor/sessizce asılı kalabiliyor)
+      // hemen anlaşılır bir mesaj göster, sessiz siyah ekranda bırakma.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError(
+          "Bu tarayıcı kamera erişimini desteklemiyor. iOS'ta bu, Safari dışındaki tarayıcıların (Opera, Chrome, Firefox vb.) ortak bir kısıtlaması — lütfen Safari'de aç."
+        );
+        return;
+      }
+
+      // Bazı tarayıcılarda izin isteği ne hata ne başarı vererek sonsuza
+      // kadar askıda kalabiliyor (kullanıcıya "hiçbir tepki yok" gibi
+      // görünür) — bir zaman aşımı ile bunu da yakala.
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 8000)
+      );
+
       try {
         // Kamera akışını EKRANIN GERÇEK EN/BOY ORANINA göre iste — Chrome/
         // Safari'nin kendi varsayılanı bazı cihazlarda kareye yakın/yatay
@@ -60,19 +78,22 @@ export default function CameraCapture({
         const wantWidth = preset.id === "auto" ? 1080 : preset.width;
         const wantHeight = preset.id === "auto" ? Math.round(1080 / screenAspect) : preset.height;
         const wantAspect = preset.id === "auto" ? screenAspect : preset.width / preset.height;
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: wantWidth },
-            height: { ideal: wantHeight },
-            aspectRatio: { ideal: wantAspect },
-            // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
-            // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
-            // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
-            advanced: [{ whiteBalanceMode: "continuous", exposureMode: "continuous", focusMode: "continuous" }],
-          },
-          audio: false,
-        });
+        stream = await Promise.race([
+          navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: wantWidth },
+              height: { ideal: wantHeight },
+              aspectRatio: { ideal: wantAspect },
+              // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
+              // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
+              // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
+              advanced: [{ whiteBalanceMode: "continuous", exposureMode: "continuous", focusMode: "continuous" }],
+            },
+            audio: false,
+          }),
+          timeout,
+        ]);
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -123,8 +144,20 @@ export default function CameraCapture({
           await videoRef.current.play();
           setReady(true);
         }
-      } catch {
-        setError("Kameraya erişilemedi. Tarayıcı izinlerini kontrol et.");
+      } catch (err) {
+        const name = err instanceof Error ? err.name : "";
+        const isTimeout = err instanceof Error && err.message === "timeout";
+        if (isTimeout) {
+          setError(
+            "Kamera izni isteği yanıt vermedi. Bu tarayıcıda (Opera/Chrome/Firefox iOS) kamera erişimi çalışmayabilir — lütfen Safari'de aç."
+          );
+        } else if (name === "NotAllowedError") {
+          setError("Kamera izni reddedildi. Tarayıcı ayarlarından bu site için kamera iznini aç.");
+        } else if (name === "NotFoundError") {
+          setError("Cihazda kullanılabilir bir kamera bulunamadı.");
+        } else {
+          setError("Kameraya erişilemedi. Tarayıcı izinlerini kontrol et.");
+        }
       }
     }
     start();
