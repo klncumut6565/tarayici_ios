@@ -43,6 +43,9 @@ export default function CameraCapture({
   const busyRef = useRef(false);
   const lastSampleCornersRef = useRef<Quad | null>(null); // örnekleme (sample canvas) uzayında — takip için anchor
   const ticksSinceFullRef = useRef(0);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number; step: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -137,6 +140,32 @@ export default function CameraCapture({
                 // Bu kombinasyon cihazda desteklenmiyor — sıradakini dene.
               }
             }
+          }
+
+          // ZOOM: telefonu belgeden uzağa tutmak zorunda kalınmasının
+          // sebebi genelde "environment" kamerası varsayılan olarak ana
+          // (geniş olmayan) lensi seçmesi. iOS 15.4+/Chrome Android çoğu
+          // cihazda "zoom" kısıtını destekliyor — min değer genelde
+          // ultra-geniş lense denk gelir. Başlangıçta OTOMATİK olarak en
+          // geniş açıya (min zoom) çekiyoruz ki kullanıcı A4'ü daha
+          // yakından, telefonu geriye götürmeden çerçeveye sığdırabilsin;
+          // ayrıca canlı ekranda manuel ince ayar için bir kaydırıcı
+          // gösteriyoruz.
+          trackRef.current = track;
+          try {
+            const caps = track.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: { min: number; max: number; step: number } }) | undefined;
+            if (caps?.zoom && caps.zoom.max > caps.zoom.min) {
+              setZoomCaps({ min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1 });
+              // En geniş açı: min ile 1 arasında hangisi küçükse (bazı
+              // cihazlarda min zaten 1'in üstünde olabilir, o zaman
+              // dokunmuyoruz — zaten en geniş açı).
+              const widest = Math.min(caps.zoom.min, 1);
+              // @ts-expect-error - zoom standart MediaTrackConstraintSet'te yok ama desteklenen cihazlarda çalışır
+              await track.applyConstraints({ advanced: [{ zoom: widest }] });
+              setZoom(widest);
+            }
+          } catch {
+            // Zoom kısıtı desteklenmiyor — sessizce geç, sabit varsayılan lensle devam.
           }
         }
         if (videoRef.current) {
@@ -403,6 +432,41 @@ export default function CameraCapture({
       >
         {liveQuad ? "BELGE ALGILANDI — ÇEK" : guideLabel}
       </div>
+
+      {zoomCaps && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "calc(120px + var(--safe-bottom))",
+            left: 32,
+            right: 32,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span style={{ color: "#fff", fontSize: 11, opacity: 0.7, width: 28 }}>Geniş</span>
+          <input
+            type="range"
+            min={zoomCaps.min}
+            max={zoomCaps.max}
+            step={zoomCaps.step}
+            value={zoom}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setZoom(v);
+              const track = trackRef.current;
+              if (track) {
+                // @ts-expect-error - zoom standart MediaTrackConstraintSet'te yok
+                track.applyConstraints({ advanced: [{ zoom: v }] }).catch(() => {});
+              }
+            }}
+            style={{ flex: 1, accentColor: "var(--scan)" }}
+            aria-label="Yakınlaştırma"
+          />
+          <span style={{ color: "#fff", fontSize: 11, opacity: 0.7, width: 28, textAlign: "right" }}>Yakın</span>
+        </div>
+      )}
 
       <div
         style={{
