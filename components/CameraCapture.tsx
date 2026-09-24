@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { detectDocumentCorners } from "@/lib/edgeDetection";
 import type { Point } from "@/lib/imageProcessing";
 import { roundedQuadPath, suggestedCornerRadius } from "@/lib/roundedQuadPath";
-import { getCameraPreset, CAMERA_PRESETS } from "@/lib/cameraSettings";
+import { getCameraPreset } from "@/lib/cameraSettings";
 
 interface Props {
   onCapture: (canvas: HTMLCanvasElement) => void;
@@ -43,9 +43,6 @@ export default function CameraCapture({
   const busyRef = useRef(false);
   const lastSampleCornersRef = useRef<Quad | null>(null); // örnekleme (sample canvas) uzayında — takip için anchor
   const ticksSinceFullRef = useRef(0);
-  const trackRef = useRef<MediaStreamTrack | null>(null);
-  const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number; step: number } | null>(null);
-  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -71,23 +68,22 @@ export default function CameraCapture({
       );
 
       try {
-        // Kamera akışını EKRANIN GERÇEK EN/BOY ORANINA göre iste — Chrome/
-        // Safari'nin kendi varsayılanı bazı cihazlarda kareye yakın/yatay
-        // gelebiliyor. Kullanıcı Ayarlar'dan manuel bir çözünürlük seçtiyse
-        // (preset.id !== "auto") o sabit değerler; seçmediyse ekran oranına
-        // göre hesaplanan değerler kullanılır.
+        // Kamera akışını KAMERANIN DOĞAL SENSÖR ORANINDA (≈4:3, 0.75) iste
+        // — ekranın kendi oranında (iPhone'da ~0.46) DEĞİL. Ekran oranını
+        // istemek donanımı sensörü aşırı kırpmaya zorluyordu (etkin bir
+        // zoom-in), bu da "belgeyi çerçeveye sığdırmak için telefonu çok
+        // uzak tutmam gerekiyor" şikayetine yol açıyordu. Ekranı doldurma
+        // işini zaten CSS'teki object-fit:cover yapıyor; kameranın kendisi
+        // ekran oranına kırpılmak zorunda değil. Kullanıcı Ayarlar'dan
+        // manuel bir çözünürlük seçtiyse onu, seçmediyse 0.75 oranlı
+        // varsayılanı kullan.
         const preset = getCameraPreset();
-        const screenAspect = window.innerWidth / window.innerHeight; // portrait'te < 1
-        const wantWidth = preset.id === "auto" ? 1080 : preset.width;
-        const wantHeight = preset.id === "auto" ? Math.round(1080 / screenAspect) : preset.height;
-        const wantAspect = preset.id === "auto" ? screenAspect : preset.width / preset.height;
         stream = await Promise.race([
           navigator.mediaDevices.getUserMedia({
             video: {
               facingMode: { ideal: "environment" },
-              width: { ideal: wantWidth },
-              height: { ideal: wantHeight },
-              aspectRatio: { ideal: wantAspect },
+              width: { ideal: preset.width },
+              height: { ideal: preset.height },
               // @ts-expect-error - whiteBalanceMode/exposureMode standart değil ama
               // Safari/iOS dahil çoğu tarayıcıda desteklenir; sürekli otomatik
               // pozlama+beyaz dengesi ister (görüntünün karanlık/sarı çıkmasını önler).
@@ -112,60 +108,6 @@ export default function CameraCapture({
             });
           } catch {
             // Desteklenmiyorsa sessizce yoksay — normal capture akışı bozulmaz.
-          }
-
-          // "ideal" bir GARANTİ DEĞİL — bazı Chrome/Android kombinasyonları
-          // (özellikle Samsung/Xiaomi) bunu yok sayıp kareye yakın bir akış
-          // döndürebiliyor. Gerçekte ne geldiğini doğrula; kareyse "exact"
-          // ile sırayla birkaç dikey preset deneyerek zorla düzelt.
-          const settings = track.getSettings();
-          const gotRatio = (settings.width ?? 1) / (settings.height ?? 1);
-          // Uygulama her zaman DİKEY bir akış istiyor (A4/kimlik taraması).
-          // Sadece "kareye yakın" değil, YATAY (gotRatio > 0.95) gelen her
-          // akış da yanlış — üstte/altta büyük siyah bant bırakıyor.
-          const isWrongOrientation = gotRatio > 0.95;
-
-          if (isWrongOrientation) {
-            const fallbackOrder = [
-              { width: wantWidth, height: wantHeight },
-              ...CAMERA_PRESETS.filter((p) => p.id !== "auto").map((p) => ({ width: p.width, height: p.height })),
-            ];
-            for (const candidate of fallbackOrder) {
-              try {
-                await track.applyConstraints({ width: { exact: candidate.width }, height: { exact: candidate.height } });
-                const after = track.getSettings();
-                const afterRatio = (after.width ?? 1) / (after.height ?? 1);
-                if (afterRatio <= 0.95) break; // düzeldi (dikey geldi), dur
-              } catch {
-                // Bu kombinasyon cihazda desteklenmiyor — sıradakini dene.
-              }
-            }
-          }
-
-          // ZOOM: telefonu belgeden uzağa tutmak zorunda kalınmasının
-          // sebebi genelde "environment" kamerası varsayılan olarak ana
-          // (geniş olmayan) lensi seçmesi. iOS 15.4+/Chrome Android çoğu
-          // cihazda "zoom" kısıtını destekliyor — min değer genelde
-          // ultra-geniş lense denk gelir. Başlangıçta OTOMATİK olarak en
-          // geniş açıya (min zoom) çekiyoruz ki kullanıcı A4'ü daha
-          // yakından, telefonu geriye götürmeden çerçeveye sığdırabilsin;
-          // ayrıca canlı ekranda manuel ince ayar için bir kaydırıcı
-          // gösteriyoruz.
-          trackRef.current = track;
-          try {
-            const caps = track.getCapabilities?.() as (MediaTrackCapabilities & { zoom?: { min: number; max: number; step: number } }) | undefined;
-            if (caps?.zoom && caps.zoom.max > caps.zoom.min) {
-              setZoomCaps({ min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1 });
-              // En geniş açı: min ile 1 arasında hangisi küçükse (bazı
-              // cihazlarda min zaten 1'in üstünde olabilir, o zaman
-              // dokunmuyoruz — zaten en geniş açı).
-              const widest = Math.min(caps.zoom.min, 1);
-              // @ts-expect-error - zoom standart MediaTrackConstraintSet'te yok ama desteklenen cihazlarda çalışır
-              await track.applyConstraints({ advanced: [{ zoom: widest }] });
-              setZoom(widest);
-            }
-          } catch {
-            // Zoom kısıtı desteklenmiyor — sessizce geç, sabit varsayılan lensle devam.
           }
         }
         if (videoRef.current) {
@@ -432,41 +374,6 @@ export default function CameraCapture({
       >
         {liveQuad ? "BELGE ALGILANDI — ÇEK" : guideLabel}
       </div>
-
-      {zoomCaps && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "calc(120px + var(--safe-bottom))",
-            left: 32,
-            right: 32,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <span style={{ color: "#fff", fontSize: 11, opacity: 0.7, width: 28 }}>Geniş</span>
-          <input
-            type="range"
-            min={zoomCaps.min}
-            max={zoomCaps.max}
-            step={zoomCaps.step}
-            value={zoom}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setZoom(v);
-              const track = trackRef.current;
-              if (track) {
-                // @ts-expect-error - zoom standart MediaTrackConstraintSet'te yok
-                track.applyConstraints({ advanced: [{ zoom: v }] }).catch(() => {});
-              }
-            }}
-            style={{ flex: 1, accentColor: "var(--scan)" }}
-            aria-label="Yakınlaştırma"
-          />
-          <span style={{ color: "#fff", fontSize: 11, opacity: 0.7, width: 28, textAlign: "right" }}>Yakın</span>
-        </div>
-      )}
 
       <div
         style={{
