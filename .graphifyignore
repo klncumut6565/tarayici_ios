@@ -1,0 +1,2 @@
+# Vendor/minified dosyalar grafiğe girmesin
+*.min.js
